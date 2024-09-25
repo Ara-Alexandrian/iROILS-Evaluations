@@ -45,7 +45,13 @@ if st.session_state['logged_in']:
     institution = st.selectbox("Select Institution", ["UAB", "MBPCC"])
 
     # Get the total number of entries for the institution
-    total_entries = len(institution_manager.get_institution_data(institution)[0])
+    selected_entries, evaluation_scores = institution_manager.get_institution_data(institution)
+
+    # ** Placeholder: Set evaluation_scores to empty if no evaluations exist yet
+    if not evaluation_scores:
+        evaluation_scores = {"Placeholder": "No evaluations yet"}  # Placeholder entry
+
+    total_entries = len(selected_entries)
 
     # Pull the selected entries from Redis (initialize if not done)
     if 'selected_entries' not in st.session_state:
@@ -66,7 +72,7 @@ if st.session_state['logged_in']:
         selection_page.show()
     elif mode == "Overview Mode":
         overview_page = OverviewPage(institution_manager, institution)
-        overview_page.show()
+        overview_page.show(evaluation_scores)  # Passing evaluation scores to the overview page
 
     # Show total selected/total entries in the interface
     st.write(f"Total Selected Entries: {total_selected} / {total_entries}")
@@ -93,7 +99,7 @@ if st.session_state['logged_in']:
     if uploaded_file:
         df = pd.read_excel(uploaded_file)
         new_selected_entries = df.to_dict(orient="records")
-        institution_manager.save_institution_data(institution, new_selected_entries, selected_entries)
+        institution_manager.save_institution_data(institution, new_selected_entries, evaluation_scores)
         st.success(f"New data for {institution} uploaded successfully!")
 
     # Logout button
