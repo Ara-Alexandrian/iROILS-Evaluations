@@ -24,7 +24,8 @@ class OverviewPage:
         # Display the selected entry
         if selected_entry:
             st.write(f"### Event Number: {selected_entry['Event Number']}")
-            st.write(f"**Evaluation Score:** {evaluation_scores.get(selected_entry['Event Number'], 'Not yet evaluated')}")
+            # Commenting out evaluation score references for now
+            # st.write(f"**Evaluation Score:** {evaluation_scores.get(selected_entry['Event Number'], 'Not yet evaluated')}")
             st.write(f"**Succinct Summary:** {selected_entry['Succinct Summary']}")
             st.write(f"**Tags:** {selected_entry['Assigned Tags']}")
         else:
@@ -32,5 +33,5 @@ class OverviewPage:
 
         # Summary at the bottom
         st.markdown(f"**Total Selected Entries:** {len(selected_entries)} / {total_entries}")
-        st.markdown(f"**Average Evaluation Score:** {(sum(evaluation_scores.values()) / len(evaluation_scores)) if evaluation_scores else 'N/A'}")
-
+        # Commenting out the average evaluation score for now
+        # st.markdown(f"**Average Evaluation Score:** {(sum(evaluation_scores.values()) / len(evaluation_scores)) if evaluation_scores else 'N/A'}")

@@ -4,8 +4,8 @@ from redis_manager import RedisManager, RedisSnapshotManager
 from login_manager import LoginManager
 from institution_manager import InstitutionManager
 from network_resolver import NetworkResolver
-from selection_page import SelectionPage  # Make sure this path is correct
-from overview_page import OverviewPage    # Make sure this path is correct
+from selection_page import SelectionPage
+from overview_page import OverviewPage
 import configparser
 import logging
 
@@ -40,28 +40,31 @@ st.title("Admin Dashboard")
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
+def reset_institution_data():
+    """Reset state when institution is changed."""
+    st.session_state['selected_entries'] = []
+    st.session_state['total_entries'] = 0
+
 # If the user is logged in, display the dashboard
 if st.session_state['logged_in']:
-    institution = st.selectbox("Select Institution", ["UAB", "MBPCC"])
+    # Handle institution selection with a callback to reset the state
+    institution = st.selectbox(
+        "Select Institution", ["UAB", "MBPCC"],
+        key='institution_select',
+        on_change=reset_institution_data
+    )
 
-    # Get the total number of entries for the institution
-    selected_entries, evaluation_scores = institution_manager.get_institution_data(institution)
-
-    # ** Placeholder: Set evaluation_scores to empty if no evaluations exist yet
-    if not evaluation_scores:
-        evaluation_scores = {"Placeholder": "No evaluations yet"}  # Placeholder entry
-
-    total_entries = len(selected_entries)
-
-    # Pull the selected entries from Redis (initialize if not done)
-    if 'selected_entries' not in st.session_state:
+    # Pull the selected entries from Redis or refresh when institution is changed
+    if 'selected_entries' not in st.session_state or not st.session_state['selected_entries']:
         selected_entries = institution_manager.get_selected_entries(institution)
         st.session_state['selected_entries'] = selected_entries
+        st.session_state['total_entries'] = len(institution_manager.get_institution_data(institution)[0])
     else:
         selected_entries = st.session_state['selected_entries']
 
     # Total selected
     total_selected = len(selected_entries)
+    total_entries = st.session_state['total_entries']
 
     # Default mode to "Overview Mode"
     mode = st.radio("Choose Mode", ["Selection Mode", "Overview Mode"], index=1)
@@ -72,7 +75,7 @@ if st.session_state['logged_in']:
         selection_page.show()
     elif mode == "Overview Mode":
         overview_page = OverviewPage(institution_manager, institution)
-        overview_page.show(evaluation_scores)  # Passing evaluation scores to the overview page
+        overview_page.show()
 
     # Show total selected/total entries in the interface
     st.write(f"Total Selected Entries: {total_selected} / {total_entries}")
@@ -83,24 +86,28 @@ if st.session_state['logged_in']:
     if st.button(f"Take Snapshot for {institution}"):
         snapshot_manager.take_snapshot(institution)
         st.success(f"Snapshot for {institution} taken successfully!")
+        st.experimental_rerun()
 
     if st.button(f"Reload {institution} Data from Snapshot"):
         snapshot_manager.load_snapshot(institution)
         st.success(f"Reloaded {institution} data from snapshot!")
+        st.experimental_rerun()
 
-    # **New Reset Button**: Reset Redis data for this institution
+    # **Reset Button**: Reset Redis data for this institution
     if st.button(f"Reset {institution} Data"):
         institution_manager.reset_institution_data(institution)
         st.session_state['selected_entries'] = []  # Clear selected entries from session state
         st.success(f"All data for {institution} has been reset.")
+        st.experimental_rerun()
 
     # Handle new data upload
     uploaded_file = st.file_uploader("Upload New Data", type="xlsx")
     if uploaded_file:
         df = pd.read_excel(uploaded_file)
         new_selected_entries = df.to_dict(orient="records")
-        institution_manager.save_institution_data(institution, new_selected_entries, evaluation_scores)
+        institution_manager.save_institution_data(institution, new_selected_entries, selected_entries)
         st.success(f"New data for {institution} uploaded successfully!")
+        st.experimental_rerun()
 
     # Logout button
     if st.button("Logout"):
