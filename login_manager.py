@@ -2,19 +2,39 @@
 
 class LoginManager:
     def __init__(self):
-        self.admin_credentials = {"admin": "admin_password"}  # Can be extended for multiple users
+        # Admin credentials
+        self.admin_credentials = {
+            'admin_username': 'admin',
+            'admin_password': 'admin_password'
+        }
+        # Evaluator credentials
+        self.evaluator_credentials = {
+            'evaluator1': 'password1',
+            'evaluator2': 'password2',
+            # Add more evaluators as needed
+        }
 
-    def authenticate(self, username, password):
-        return self.admin_credentials.get(username) == password
-
-    def is_logged_in(self, session_state):
-        return session_state.get("logged_in", False)
 
     def login(self, session_state, username, password):
-        if self.authenticate(username, password):
-            session_state["logged_in"] = True
+        if username == self.admin_credentials['admin_username'] and password == self.admin_credentials['admin_password']:
+            session_state['user_role'] = 'admin'
             return True
-        return False
+        else:
+            return False
+
+
+    def evaluator_login(self, session_state, username, password):
+        if username in self.evaluator_credentials:
+            if self.evaluator_credentials[username] == password:
+                session_state['evaluator_logged_in'] = True
+                session_state['evaluator_username'] = username
+                session_state['user_role'] = 'evaluator'
+                return True
+            else:
+                return False
+        else:
+            return False
+
 
     def logout(self, session_state):
-        session_state["logged_in"] = False
+        session_state.pop('user_role', None)
