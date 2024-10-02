@@ -1,3 +1,5 @@
+# app.py
+
 import streamlit as st
 import pandas as pd
 from redis_manager import RedisManager, RedisSnapshotManager
@@ -6,7 +8,7 @@ from institution_manager import InstitutionManager
 from network_resolver import NetworkResolver
 from selection_page import SelectionPage
 from overview_page import OverviewPage
-from analysis_page import AnalysisPage
+from analysis_page import AnalysisPage  # Import AnalysisPage
 import configparser
 import logging
 
@@ -89,39 +91,31 @@ else:
         )
 
         # Pull all entries from Redis or refresh when institution is changed
-        if 'all_entries' not in st.session_state:
-            all_entries = institution_manager.get_all_entries(institution)
-            evaluation_scores = institution_manager.get_evaluation_scores(institution)
-            if all_entries:
-                st.session_state['all_entries'] = all_entries
-                st.session_state['evaluation_scores'] = evaluation_scores
-                st.session_state['total_entries'] = len(all_entries)
-            else:
-                st.session_state['all_entries'] = []
-                st.session_state['evaluation_scores'] = {}
-                st.session_state['total_entries'] = 0
-                st.warning("No data available for the selected institution.")
+        if 'all_entries' not in st.session_state or not st.session_state['all_entries']:
+            all_entries, _ = institution_manager.get_institution_data(institution)
+            st.session_state['all_entries'] = all_entries
+            st.session_state['total_entries'] = len(all_entries)
         else:
             all_entries = st.session_state['all_entries']
-            evaluation_scores = st.session_state['evaluation_scores']
             st.session_state['total_entries'] = len(all_entries)  # Ensure total_entries is updated
+
+        # Get selected entries
+        selected_entries = [entry for entry in st.session_state['all_entries'] if entry.get('Selected') == 'Select for Evaluation']
+
+        # Total selected
+        total_selected = len(selected_entries)
+        total_entries = st.session_state.get('total_entries', 0)
 
         # Update mode selection to include Analysis Mode
         mode = st.radio("Choose Mode", ["Selection Mode", "Overview Mode", "Analysis Mode"], index=0)
 
         # Display the appropriate page based on the selected mode
         if mode == "Analysis Mode":
-            if st.session_state['total_entries'] > 0:
-                analysis_page = AnalysisPage(institution_manager, redis_manager, login_manager)
-                analysis_page.show()
-            else:
-                st.warning("No data available for the selected institution.")
-        elif mode == "Selection Mode":
-            if st.session_state['total_entries'] > 0:
-                selection_page = SelectionPage(institution_manager, institution)
-                selection_page.show()
-            else:
-                st.warning("No entries available for this institution.")
+            analysis_page = AnalysisPage(institution_manager, redis_manager)
+            analysis_page.show()
+        if mode == "Selection Mode":
+            selection_page = SelectionPage(institution_manager, institution)
+            selection_page.show()
         elif mode == "Overview Mode":
             overview_page = OverviewPage(institution_manager, institution)
             overview_page.show()
@@ -139,7 +133,7 @@ else:
                     st.rerun()
 
             with col2:
-                if st.button("Load Snapshot"):
+                if st.button("Reload Snapshot"):
                     snapshot_manager.load_snapshot(institution)
                     reset_session_state()  # Clear session state variables
                     st.success(f"Reloaded {institution} data from snapshot!")
@@ -173,8 +167,12 @@ else:
                 else:
                     st.warning("Please upload a file before clicking 'Upload'.")
 
+        elif mode == "Analysis Mode":
+            analysis_page = AnalysisPage(institution_manager)
+            analysis_page.show()
+
         # Show total number of entries in the interface
-        st.write(f"Total number of entries in database: {st.session_state['total_entries']}")
+        st.write(f"Total number of entries in database: {total_entries}")
 
         # Logout button
         if st.button("Logout"):

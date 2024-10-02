@@ -43,11 +43,24 @@ class InstitutionManager:
         else:
             return {}
 
-    def get_institution_data(self, institution):
-        """Retrieve all entries and evaluation scores for the institution."""
-        all_entries = self.get_all_entries(institution)
-        evaluation_scores = self.get_evaluation_scores(institution)
-        return all_entries, evaluation_scores
+    def reset_institution_data(self, institution):
+        """Reset all data (entries and evaluations) for the institution in Redis."""
+        try:
+            # Delete all entries for the institution
+            entries_deleted = self.redis_client.delete(f"{institution}:entries")
+            
+            # Delete all evaluation scores for the institution
+            evals_deleted = self.redis_client.delete(f"{institution}:evaluation_scores")
+            
+            if entries_deleted and evals_deleted:
+                self.logger.info(f"Entries and evaluations for {institution} have been reset in Redis.")
+            else:
+                self.logger.warning(f"Data for {institution} may not have existed in Redis, or delete operation was not successful.")
+            
+        except Exception as e:
+            # Log any errors
+            self.logger.error(f"Failed to reset data for {institution} in Redis: {e}")
+
 
     def save_institution_data(self, institution, entries):
         """Save all entries for the institution."""
@@ -58,13 +71,20 @@ class InstitutionManager:
             self.logger.error(f"Failed to save institution data: {e}")
 
     def reset_institution_data(self, institution):
-        """Reset all data for the institution in Redis."""
+        """Reset all data (entries and evaluations) for the institution in Redis."""
         try:
+            # Delete all entries for the institution
             self.redis_client.delete(f"{institution}:entries")
+            
+            # Delete all evaluation scores for the institution
             self.redis_client.delete(f"{institution}:evaluation_scores")
+            
+            # Log success
             self.logger.info(f"Data for {institution} has been reset in Redis.")
         except Exception as e:
+            # Log any errors
             self.logger.error(f"Failed to reset data for {institution} in Redis: {e}")
+
 
     def update_entry(self, institution, updated_entry):
         """Update a single entry for the institution."""

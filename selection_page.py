@@ -1,6 +1,8 @@
 # selection_page.py
 
 import streamlit as st
+import random
+import streamlit.components.v1 as components
 
 class SelectionPage:
     def __init__(self, institution_manager, institution):
@@ -75,6 +77,31 @@ class SelectionPage:
             st.warning("No entries match the search and filter criteria.")
             return
 
+        # Button to select 200 random entries
+        if st.button("Select 200 Random Entries"):
+            num_to_select = 200
+            # From the filtered entries, get unselected entries
+            unselected_entries = [
+                entry for entry in filtered_entries
+                if entry.get('Selected', 'Do Not Select') == 'Do Not Select'
+            ]
+            num_available = len(unselected_entries)
+            if num_available == 0:
+                st.warning("No unselected entries are available to select.")
+            else:
+                num_to_select = min(num_to_select, num_available)
+                random_entries = random.sample(unselected_entries, num_to_select)
+                for entry in random_entries:
+                    entry['Selected'] = 'Select for Evaluation'
+                    # Update entry in Redis
+                    self.institution_manager.update_entry(self.institution, entry)
+                    # Update session state
+                    for idx, e in enumerate(st.session_state['all_entries']):
+                        if e['Event Number'] == entry['Event Number']:
+                            st.session_state['all_entries'][idx]['Selected'] = 'Select for Evaluation'
+                            break
+                st.success(f"{num_to_select} random entries have been selected for evaluation.")
+
         # Initialize current index if not set
         if 'current_index' not in st.session_state:
             st.session_state['current_index'] = 0
@@ -94,15 +121,15 @@ class SelectionPage:
             if st.button("Previous Entry") and st.session_state.current_index > 0:
                 st.session_state.current_index -= 1
         with col2:
-            # Slider to navigate entries
+            # Slider to navigate entries (enumerated from 1)
             st.session_state.current_index = st.slider(
                 "Select Entry",
-                min_value=0,
-                max_value=total_filtered_entries - 1,
-                value=st.session_state.current_index,
+                min_value=1,
+                max_value=total_filtered_entries,
+                value=st.session_state.current_index + 1,
                 format="Entry %d",
                 key='entry_slider'
-            )
+            ) - 1  # Adjust index to be 0-based
         with col3:
             if st.button("Next Entry") and st.session_state.current_index < total_filtered_entries - 1:
                 st.session_state.current_index += 1
@@ -113,8 +140,11 @@ class SelectionPage:
 
         current_entry = filtered_entries[st.session_state.current_index]
 
-        # Display the current entry
-        st.write(f"### Event Number: {current_entry.get('Event Number', 'N/A')}")
+        entry_number_display = st.session_state.current_index + 1
+
+        # Display the current entry with enumeration from 1
+        st.write(f"### Entry {entry_number_display} of {total_filtered_entries} - Event Number: {current_entry.get('Event Number', 'N/A')}")
+
         st.write(f"**Narrative:** {current_entry.get('Narrative', '')}")
         st.write(f"**Cleaned Narrative:** {current_entry.get('Cleaned Narrative', '')}")
         st.write(f"**Assigned Tags:** {current_entry.get('Assigned Tags', '')}")
@@ -128,6 +158,24 @@ class SelectionPage:
             value=is_selected,
             key=f"select_{current_entry.get('Event Number', st.session_state.current_index)}"
         )
+
+        # Inject JavaScript for hotkey (Press 'T' to toggle selection)
+        # Note: This method may have limitations across different browsers and is not guaranteed to work reliably.
+        components.html(f"""
+        <script>
+            const doc = window.parent.document;
+            const checkbox = doc.querySelector('input[data-testid="stSessionState-select_{current_entry.get('Event Number', st.session_state.current_index)}"]');
+            document.addEventListener('keydown', function(event) {{
+                if (['INPUT', 'TEXTAREA'].indexOf(doc.activeElement.tagName) === -1) {{
+                    if (event.code === 'KeyT') {{
+                        if (checkbox) {{
+                            checkbox.click();
+                        }}
+                    }}
+                }}
+            }});
+        </script>
+        """, height=0)
 
         # Update selection status if changed
         if selection != is_selected:

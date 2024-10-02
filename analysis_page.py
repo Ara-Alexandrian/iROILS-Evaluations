@@ -1,176 +1,123 @@
-# analysis_page.py
-
 import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from institution_manager import InstitutionManager
 
 class AnalysisPage:
-    def __init__(self, institution_manager):
+    def __init__(self, institution_manager, redis_manager, login_manager):
         self.institution_manager = institution_manager
+        self.redis_manager = redis_manager
+        self.login_manager = login_manager
 
     def show(self):
         st.header("Analysis Mode")
 
-        # Load data for all institutions
-        institutions = ["UAB", "MBPCC"]
-        all_data = {}
-        total_entries = 0
-
-        # Collect data from all institutions
-        for institution in institutions:
-            entries, _ = self.institution_manager.get_institution_data(institution)
-            total_entries += len(entries)
-            evaluated_entries = [
-                entry for entry in entries if 'Evaluations' in entry and entry['Evaluations']
-            ]
-            all_data[institution] = {
-                'entries': entries,
-                'evaluated_entries': evaluated_entries
-            }
-
-        # Check if there are any evaluations
-        total_evaluations = sum(len(data['evaluated_entries']) for data in all_data.values())
-        if total_evaluations == 0:
-            st.write("No entries have been evaluated yet.")
-            st.markdown(f"**Total Entries in Database:** {total_entries}")
-            return
-
-        # Display institution-wise averages
+        # Institution Averages (existing code remains unchanged)
         st.subheader("Institution Averages")
-        institution_stats = {}
 
-        for institution, data in all_data.items():
-            evaluated_entries = data['evaluated_entries']
-            summary_scores = []
-            tag_scores = []
+        institutions = ["UAB", "MBPCC"]
+        total_entries = 0
+        total_evaluations = 0
+        cumulative_summary_total = 0
+        cumulative_tag_total = 0
+        institution_stats_list = []
 
-            for entry in evaluated_entries:
-                for eval in entry['Evaluations']:
-                    summary_score = eval.get('Summary Score', 0)
-                    tag_score = eval.get('Tag Score', 0)
-                    summary_scores.append(summary_score)
-                    tag_scores.append(tag_score)
+        for institution in institutions:
+            # Fetching data from Redis
+            entries = self.institution_manager.get_all_entries(institution)
+            total_entries += len(entries)
 
-            if summary_scores:
-                avg_summary_score = np.mean(summary_scores)
+            # Redis stats retrieval
+            stats_key = f"{institution}_stats"
+            stats = self.redis_manager.redis_client.hgetall(stats_key)
+
+            if stats:
+                cumulative_summary = float(stats.get('cumulative_summary', 0))
+                cumulative_tag = float(stats.get('cumulative_tag', 0))
+                total_evals = int(stats.get('total_evaluations', 0))
+
+                avg_summary = cumulative_summary / total_evals if total_evals > 0 else 0.0
+                avg_tag = cumulative_tag / total_evals if total_evals > 0 else 0.0
+
+                total_evaluations += total_evals
+                cumulative_summary_total += cumulative_summary
+                cumulative_tag_total += cumulative_tag
+
+                institution_stats_list.append({
+                    'Institution': institution,
+                    'Average Summary Score': round(avg_summary, 2),
+                    'Average Tag Score': round(avg_tag, 2),
+                    'Total Evaluations': total_evals
+                })
             else:
-                avg_summary_score = 0
+                institution_stats_list.append({
+                    'Institution': institution,
+                    'Average Summary Score': 0.0,
+                    'Average Tag Score': 0.0,
+                    'Total Evaluations': 0
+                })
 
-            if tag_scores:
-                avg_tag_score = np.mean(tag_scores)
-            else:
-                avg_tag_score = 0
+        # Display the institution stats
+        for stats in institution_stats_list:
+            st.write(f"**{stats['Institution']}**")
+            st.write(f"- Average Summary Score: {stats['Average Summary Score']}")
+            st.write(f"- Average Tag Score: {stats['Average Tag Score']}")
+            st.write(f"- Total Evaluations: {stats['Total Evaluations']}")
 
-            institution_stats[institution] = {
-                'avg_summary_score': avg_summary_score,
-                'avg_tag_score': avg_tag_score,
-                'total_evaluations': len(summary_scores)
-            }
-
-        # Display averages in a table
-        stats_df = pd.DataFrame.from_dict(institution_stats, orient='index')
-        stats_df = stats_df.rename(columns={
-            'avg_summary_score': 'Average Summary Score',
-            'avg_tag_score': 'Average Tag Score',
-            'total_evaluations': 'Total Evaluations'
-        })
-        st.dataframe(stats_df)
-
-        # Calculate combined averages
-        all_summary_scores = []
-        all_tag_scores = []
-        for data in all_data.values():
-            evaluated_entries = data['evaluated_entries']
-            for entry in evaluated_entries:
-                for eval in entry['Evaluations']:
-                    all_summary_scores.append(eval.get('Summary Score', 0))
-                    all_tag_scores.append(eval.get('Tag Score', 0))
-
-        combined_avg_summary_score = np.mean(all_summary_scores) if all_summary_scores else 0
-        combined_avg_tag_score = np.mean(all_tag_scores) if all_tag_scores else 0
-
-        # Aggregate score (average of summary and tag scores)
-        combined_aggregate_score = np.mean([
-            (s + t) / 2 for s, t in zip(all_summary_scores, all_tag_scores)
-        ]) if all_summary_scores and all_tag_scores else 0
-
+        # Display combined averages across all institutions
         st.subheader("Combined Averages Across All Institutions")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Combined Average Summary Score", f"{combined_avg_summary_score:.2f}")
-        with col2:
-            st.metric("Combined Average Tag Score", f"{combined_avg_tag_score:.2f}")
-        with col3:
-            st.metric("Combined Aggregate Score", f"{combined_aggregate_score:.2f}")
+        
+        combined_avg_summary_score = cumulative_summary_total / total_evaluations if total_evaluations > 0 else 0.0
+        combined_avg_tag_score = cumulative_tag_total / total_evaluations if total_evaluations > 0 else 0.0
+        combined_aggregate_score = (combined_avg_summary_score + combined_avg_tag_score) / 2
 
-        # Navigation to individual entries
-        st.subheader("View Individual Entry Evaluations")
-        # Collect all evaluated entries
-        all_evaluated_entries = []
-        for institution, data in all_data.items():
-            for entry in data['evaluated_entries']:
-                entry_copy = entry.copy()
-                entry_copy['Institution'] = institution
-                all_evaluated_entries.append(entry_copy)
+        st.metric("Combined Average Summary Score", f"{combined_avg_summary_score:.2f}")
+        st.metric("Combined Average Tag Score", f"{combined_avg_tag_score:.2f}")
+        st.metric("Combined Aggregate Score", f"{combined_aggregate_score:.2f}")
 
-        # Create a list of event numbers with institution names
-        event_options = [
-            f"{entry['Event Number']} ({entry['Institution']})"
-            for entry in all_evaluated_entries
-        ]
+        st.write(f"Total Evaluations Across All Institutions: {total_evaluations}")
+        st.write(f"Total Entries in Database: {total_entries}")
 
-        selected_event = st.selectbox("Select Entry", options=event_options)
+        # Add Search/Jump to Specific Entry
+        st.subheader("Search for Specific Entry by Event Number")
+        event_number_search = st.text_input("Enter Event Number to Search")
 
-        # Find the selected entry
-        selected_entry = next(
-            (entry for entry in all_evaluated_entries if
-             f"{entry['Event Number']} ({entry['Institution']})" == selected_event),
-            None
-        )
+        if st.button("Search Entry"):
+            entry_found = None
+            for institution in institutions:
+                entries = self.institution_manager.get_all_entries(institution)
+                for entry in entries:
+                    if entry.get('Event Number') == event_number_search:
+                        entry_found = entry
+                        break
 
-        if selected_entry:
-            self.display_entry_evaluations(selected_entry)
-        else:
-            st.write("Entry not found.")
+            if entry_found:
+                st.write(f"Entry Found: Event Number {entry_found.get('Event Number')}")
+                if 'Evaluations' in entry_found:
+                    st.write("### Evaluations for this Entry")
+                    for evaluation in entry_found['Evaluations']:
+                        st.write(f"Evaluator: {evaluation['Evaluator']}")
+                        st.write(f"Summary Score: {evaluation['Summary Score']}")
+                        st.write(f"Tag Score: {evaluation['Tag Score']}")
+                        st.write(f"Feedback: {evaluation['Feedback']}")
+                        st.markdown("---")
+                else:
+                    st.write("No evaluations found for this entry.")
+            else:
+                st.write("Entry not found.")
 
-        # Summary at the bottom
-        st.markdown(f"**Total Evaluations Across All Institutions:** {len(all_summary_scores)}")
-        st.markdown(f"**Total Entries in Database:** {total_entries}")
+        # Filter Evaluations by Evaluator
+        st.subheader("Filter Evaluations by Evaluator")
+        evaluators = sorted(self.login_manager.evaluator_credentials.keys())
+        selected_evaluator = st.selectbox("Select Evaluator", evaluators)
 
-    def display_entry_evaluations(self, entry):
-        st.markdown(f"### Event Number: {entry['Event Number']} ({entry['Institution']})")
-        st.write(f"**Succinct Summary:** {entry.get('Succinct Summary', 'N/A')}")
-        st.write(f"**Assigned Tags:** {entry.get('Assigned Tags', 'N/A')}")
-
-        evaluations = entry.get('Evaluations', [])
-        if not evaluations:
-            st.write("No evaluations available for this entry.")
-            return
-
-        st.markdown("#### Evaluations")
-        for idx, eval in enumerate(evaluations, start=1):
-            with st.expander(f"Evaluation {idx} by {eval.get('Evaluator', 'Unknown')}"):
-                summary_score = eval.get('Summary Score', 'N/A')
-                tag_score = eval.get('Tag Score', 'N/A')
-                feedback = eval.get('Feedback', 'No feedback provided.')
-                st.write(f"**Summary Score:** {summary_score}")
-                st.write(f"**Tag Score:** {tag_score}")
-                st.write(f"**Feedback:** {feedback}")
-
-        # Highlight outliers if needed
-        # Example: Display evaluations with low scores
-        low_score_threshold = 2  # Define threshold for low scores
-        low_score_evals = [
-            eval for eval in evaluations if
-            eval.get('Summary Score', 0) <= low_score_threshold or
-            eval.get('Tag Score', 0) <= low_score_threshold
-        ]
-        if low_score_evals:
-            st.warning("Low score evaluations detected:")
-            for eval in low_score_evals:
-                st.write(f"- Evaluator: {eval.get('Evaluator', 'Unknown')}, "
-                         f"Summary Score: {eval.get('Summary Score', 'N/A')}, "
-                         f"Tag Score: {eval.get('Tag Score', 'N/A')}")
-
+        if selected_evaluator:
+            st.write(f"Evaluations by {selected_evaluator}")
+            for institution in institutions:
+                entries = self.institution_manager.get_all_entries(institution)
+                for entry in entries:
+                    if 'Evaluations' in entry:
+                        for evaluation in entry['Evaluations']:
+                            if evaluation['Evaluator'] == selected_evaluator:
+                                st.write(f"### Entry: {entry.get('Event Number')}")
+                                st.write(f"Summary Score: {evaluation['Summary Score']}")
+                                st.write(f"Tag Score: {evaluation['Tag Score']}")
+                                st.write(f"Feedback: {evaluation['Feedback']}")
+                                st.markdown("---")

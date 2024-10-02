@@ -1,5 +1,3 @@
-# redis_manager.py
-
 import redis
 import json
 import logging
@@ -76,23 +74,21 @@ class RedisSnapshotManager:
     def take_snapshot(self, institution):
         """Take a snapshot of data for a specific institution and store it."""
         try:
-            # Retrieve and deserialize current data for the institution
+            # Retrieve and serialize current data for the institution
             selected_entries_json = self.redis_client.get(f"{institution}:selected_entries")
             evaluation_scores_json = self.redis_client.get(f"{institution}:evaluation_scores")
 
             selected_entries = json.loads(selected_entries_json) if selected_entries_json else []
             evaluation_scores = json.loads(evaluation_scores_json) if evaluation_scores_json else {}
 
-            # Prepare snapshot data as a dictionary
+            # Prepare snapshot data
             snapshot_data = {
                 'selected_entries': selected_entries,
                 'evaluation_scores': evaluation_scores
             }
 
-            # Serialize the snapshot data
+            # Save the snapshot in Redis
             snapshot_json = json.dumps(snapshot_data)
-
-            # Save the snapshot for the institution
             snapshot_key = f"{institution}:snapshot"
             self.redis_client.set(snapshot_key, snapshot_json)
             self.logger.info(f"Snapshot for {institution} saved successfully.")
@@ -112,14 +108,9 @@ class RedisSnapshotManager:
                 # Deserialize the snapshot data
                 snapshot_data = json.loads(snapshot_json)
 
-                # Serialize individual components to store back in Redis
-                selected_entries_json = json.dumps(snapshot_data['selected_entries'])
-                evaluation_scores_json = json.dumps(snapshot_data['evaluation_scores'])
-
                 # Restore the data for the specific institution
-                self.redis_client.set(f"{institution}:selected_entries", selected_entries_json)
-                self.redis_client.set(f"{institution}:evaluation_scores", evaluation_scores_json)
-
+                self.redis_client.set(f"{institution}:selected_entries", json.dumps(snapshot_data['selected_entries']))
+                self.redis_client.set(f"{institution}:evaluation_scores", json.dumps(snapshot_data['evaluation_scores']))
                 self.logger.info(f"Snapshot for {institution} loaded successfully.")
             else:
                 self.logger.warning(f"No snapshot found for {institution}.")
