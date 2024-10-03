@@ -41,189 +41,227 @@ if not st.session_state.get('evaluator_logged_in', False):
     if st.button("Login"):
         if login_manager.evaluator_login(st.session_state, evaluator_username, evaluator_password):
             st.success("Login successful!")
+            # Load the last completed entry index from Redis for this evaluator
+            last_completed_entry_index = redis_manager.redis_client.get(f"{evaluator_username}:last_completed_entry_index")
+            if last_completed_entry_index is not None:
+                st.session_state['current_eval_index'] = int(last_completed_entry_index)
+            else:
+                st.session_state['current_eval_index'] = 0
             st.rerun()
         else:
             st.error("Invalid username or password")
 else:
     # Evaluator is logged in
-    st.markdown(f"### Welcome, {st.session_state['evaluator_username']}!")
+    evaluator_username = st.session_state['evaluator_username']
+    evaluator_institution = st.session_state['evaluator_institution']
 
-    # Select Institution
-    def on_institution_change():
-        st.session_state.pop('assigned_entries', None)
-        st.session_state.pop('current_eval_index', None)
-        st.session_state.pop('total_assigned_entries', None)
+    # Page navigation
+    page_selection = st.radio("Choose Page", ["Evaluation Submission", "Progress & Statistics"])
 
-    institution = st.selectbox(
-        "Select Institution", ["UAB", "MBPCC"],
-        key='evaluator_institution_select',
-        on_change=on_institution_change
-    )
+    if page_selection == "Evaluation Submission":
+        # ---- The Evaluation Submission Page ----
+        st.markdown(f"### Welcome, {evaluator_username}!")
 
-    # Load assigned entries
-    if 'assigned_entries' not in st.session_state:
-        # Retrieve only the entries
-        all_entries = institution_manager.get_all_entries(institution)
-        assigned_entries = [
-            entry for entry in all_entries if entry.get('Selected') == 'Select for Evaluation'
-        ]
-        st.session_state['assigned_entries'] = assigned_entries
-        st.session_state['total_assigned_entries'] = len(assigned_entries)
-    else:
-        assigned_entries = st.session_state['assigned_entries']
+        # Load assigned entries only if not already in session state
+        if 'assigned_entries' not in st.session_state:
+            all_entries = institution_manager.get_all_entries(evaluator_institution)
+            assigned_entries = [
+                entry for entry in all_entries if entry.get('Selected') == 'Select for Evaluation'
+            ]
+            st.session_state['assigned_entries'] = assigned_entries
+            st.session_state['total_assigned_entries'] = len(assigned_entries)
 
-    total_assigned_entries = st.session_state.get('total_assigned_entries', 0)
+        assigned_entries = st.session_state.get('assigned_entries', [])
+        total_assigned_entries = st.session_state.get('total_assigned_entries', 0)
 
-    if total_assigned_entries == 0:
-        st.write("No entries assigned for evaluation.")
-    else:
-        # Initialize current evaluation index
-        if 'current_eval_index' not in st.session_state:
-            st.session_state['current_eval_index'] = 0
-
-        # Ensure index is within bounds
-        if st.session_state.current_eval_index >= total_assigned_entries:
-            st.session_state.current_eval_index = total_assigned_entries - 1
-        if st.session_state.current_eval_index < 0:
-            st.session_state.current_eval_index = 0
-
-        # Navigation
-        st.markdown("### Navigate Entries")
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col1:
-            if st.button("Previous Entry") and st.session_state.current_eval_index > 0:
-                st.session_state.current_eval_index -= 1
-        with col2:
-            st.session_state.current_eval_index = st.slider(
-                "Select Entry",
-                min_value=1,
-                max_value=total_assigned_entries,
-                value=st.session_state.current_eval_index + 1,
-                format="Entry %d",
-                key='eval_entry_slider'
-            ) - 1
-        with col3:
-            if st.button("Next Entry") and st.session_state.current_eval_index < total_assigned_entries - 1:
-                st.session_state.current_eval_index += 1
-
-        current_entry = assigned_entries[st.session_state.current_eval_index]
-
-        # Display progress bar
-        progress = (st.session_state.current_eval_index + 1) / total_assigned_entries
-        st.progress(progress)
-
-        # Display the current entry
-        st.write(f"### Entry {st.session_state.current_eval_index + 1} of {total_assigned_entries} - Event Number: {current_entry.get('Event Number', 'N/A')}")
-
-        st.markdown("#### Original Narrative")
-        st.write(current_entry.get('Narrative', ''))
-
-        st.markdown("#### Succinct Summary")
-        st.write(current_entry.get('Succinct Summary', ''))
-
-        # Check if the evaluator has already evaluated this entry
-        already_evaluated = any(
-            eval['Evaluator'] == st.session_state['evaluator_username'] 
-            for eval in current_entry.get('Evaluations', [])
-        )
-
-        if already_evaluated:
-            st.markdown("### This entry has already been evaluated by you.")
+        if total_assigned_entries == 0:
+            st.write("No entries assigned for evaluation.")
         else:
-            if f"summary_score_{st.session_state.current_eval_index}" not in st.session_state:
-                st.session_state[f"summary_score_{st.session_state.current_eval_index}"] = 3
+            # Ensure index is within bounds
+            current_eval_index = st.session_state.get('current_eval_index', 0)
+            if current_eval_index >= total_assigned_entries:
+                current_eval_index = total_assigned_entries - 1
+            if current_eval_index < 0:
+                current_eval_index = 0
 
-            if f"tag_score_{st.session_state.current_eval_index}" not in st.session_state:
-                st.session_state[f"tag_score_{st.session_state.current_eval_index}"] = 3
+            current_entry = assigned_entries[current_eval_index]
 
-            if f"evaluation_feedback_{st.session_state.current_eval_index}" not in st.session_state:
-                st.session_state[f"evaluation_feedback_{st.session_state.current_eval_index}"] = ""
+            # Navigation tools
+            st.markdown("### Navigate Entries")
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col1:
+                if st.button("Previous Entry") and current_eval_index > 0:
+                    st.session_state['current_eval_index'] -= 1
+                    st.rerun()
+            with col3:
+                if st.button("Next Entry") and current_eval_index < total_assigned_entries - 1:
+                    st.session_state['current_eval_index'] += 1
+                    st.rerun()
 
-            # Sliders for scoring
-            summary_score = st.slider("Rate the Succinct Summary (1-5)", min_value=1, max_value=5,
-                                      key=f'summary_score_{st.session_state.current_eval_index}')
-            st.markdown("#### Assigned Tags")
-            st.write(current_entry.get('Assigned Tags', ''))
-            tag_score = st.slider("Rate the Assigned Tags (1-5)", min_value=1, max_value=5,
-                                  key=f'tag_score_{st.session_state.current_eval_index}')
-            st.markdown("#### Provide Your Feedback")
-            feedback = st.text_area("Feedback", key=f'evaluation_feedback_{st.session_state.current_eval_index}')
+            with col2:
+                # Slider to navigate entries (enumerated from 1)
+                st.session_state['current_eval_index'] = st.slider(
+                    "Select Entry",
+                    min_value=1,
+                    max_value=total_assigned_entries,
+                    value=current_eval_index + 1,
+                    format="Entry %d",
+                    key='eval_entry_slider'
+                ) - 1  # Adjust index to be 0-based
+                current_eval_index = st.session_state['current_eval_index']
 
-            # Submit evaluation
-            if st.button("Submit Evaluation"):
-                # Save evaluation
-                evaluation = {
-                    'Evaluator': st.session_state['evaluator_username'],
-                    'Summary Score': summary_score,
-                    'Tag Score': tag_score,
-                    'Feedback': feedback
-                }
+            # Display progress bar
+            progress = (current_eval_index + 1) / total_assigned_entries
+            st.progress(progress)
 
-                # Check if the evaluator has already evaluated this entry
-                existing_evaluations = current_entry.get('Evaluations', [])
-                updated_evaluations = []
+            # Display the current entry for evaluation
+            st.write(f"### Entry {current_eval_index + 1} of {total_assigned_entries} - Event Number: {current_entry.get('Event Number', 'N/A')}")
+            st.markdown("#### Original Narrative")
+            st.write(current_entry.get('Narrative', ''))
 
-                evaluator_found = False
-                previous_summary_score = 0
-                previous_tag_score = 0
+            st.markdown("#### Succinct Summary")
+            st.write(current_entry.get('Succinct Summary', ''))
 
-                for eval in existing_evaluations:
-                    if eval['Evaluator'] == st.session_state['evaluator_username']:
-                        # Overwrite the existing evaluation with the new one
-                        previous_summary_score = eval['Summary Score']
-                        previous_tag_score = eval['Tag Score']
-                        updated_evaluations.append(evaluation)
-                        evaluator_found = True
+            # Check if the evaluator has already evaluated this entry
+            evaluator_previous_evaluation = None
+            for eval in current_entry.get('Evaluations', []):
+                if eval['Evaluator'] == evaluator_username:
+                    evaluator_previous_evaluation = eval
+                    break
+
+            if evaluator_previous_evaluation and not st.session_state.get('re_evaluating', False):
+                st.markdown("### This entry has already been evaluated by you.")
+                st.write(f"**Summary Score:** {evaluator_previous_evaluation['Summary Score']}")
+                st.write(f"**Tag Score:** {evaluator_previous_evaluation['Tag Score']}")
+                st.write(f"**Feedback:** {evaluator_previous_evaluation['Feedback']}")
+
+                if st.button("Re-Evaluate Entry"):
+                    st.session_state['re_evaluating'] = True
+                    # Clear any existing session variables for this entry
+                    st.session_state.pop(f"summary_score_{current_eval_index}", None)
+                    st.session_state.pop(f"tag_score_{current_eval_index}", None)
+                    st.session_state.pop(f"evaluation_feedback_{current_eval_index}", None)
+                    st.rerun()
+            else:
+                # Set default values in session state when the entry changes or re-evaluating
+                if f"summary_score_{current_eval_index}" not in st.session_state:
+                    # If re-evaluating, pre-fill with previous values
+                    if evaluator_previous_evaluation:
+                        st.session_state[f"summary_score_{current_eval_index}"] = evaluator_previous_evaluation['Summary Score']
                     else:
-                        updated_evaluations.append(eval)
+                        st.session_state[f"summary_score_{current_eval_index}"] = 3  # Default value
 
-                # If no previous evaluation was found for this evaluator, append the new evaluation
-                if not evaluator_found:
-                    updated_evaluations.append(evaluation)
+                if f"tag_score_{current_eval_index}" not in st.session_state:
+                    if evaluator_previous_evaluation:
+                        st.session_state[f"tag_score_{current_eval_index}"] = evaluator_previous_evaluation['Tag Score']
+                    else:
+                        st.session_state[f"tag_score_{current_eval_index}"] = 3
 
-                # Update the entry with the modified evaluations
-                current_entry['Evaluations'] = updated_evaluations
+                if f"evaluation_feedback_{current_eval_index}" not in st.session_state:
+                    if evaluator_previous_evaluation:
+                        st.session_state[f"evaluation_feedback_{current_eval_index}"] = evaluator_previous_evaluation['Feedback']
+                    else:
+                        st.session_state[f"evaluation_feedback_{current_eval_index}"] = ''
 
-                # Update entry in Redis
-                institution_manager.update_entry(institution, current_entry)
+                # Use unique keys for each evaluation to avoid conflicts
+                summary_score = st.slider("Rate the Succinct Summary (1-5)", min_value=1, max_value=5,
+                                          key=f'summary_score_{current_eval_index}')
 
-                # Update cumulative stats in Redis
-                stats_key = f"{institution}_stats"
-                stats = redis_manager.redis_client.hgetall(stats_key)
+                st.markdown("#### Assigned Tags")
+                st.write(current_entry.get('Assigned Tags', ''))
 
-                cumulative_summary = float(stats.get('cumulative_summary', 0))
-                cumulative_tag = float(stats.get('cumulative_tag', 0))
-                total_evaluations = int(stats.get('total_evaluations', 0))
+                tag_score = st.slider("Rate the Assigned Tags (1-5)", min_value=1, max_value=5,
+                                      key=f'tag_score_{current_eval_index}')
 
-                # If the evaluator has already evaluated the entry, adjust previous scores
-                if evaluator_found:
-                    cumulative_summary = cumulative_summary - previous_summary_score + summary_score
-                    cumulative_tag = cumulative_tag - previous_tag_score + tag_score
-                else:
-                    cumulative_summary += summary_score
-                    cumulative_tag += tag_score
-                    total_evaluations += 1
+                st.markdown("#### Provide Your Feedback")
 
-                # Save updated stats back to Redis
-                redis_manager.redis_client.hmset(stats_key, {
-                    'cumulative_summary': cumulative_summary,
-                    'cumulative_tag': cumulative_tag,
-                    'total_evaluations': total_evaluations
-                })
+                feedback = st.text_area("Feedback", key=f'evaluation_feedback_{current_eval_index}')
 
-                st.success("Evaluation submitted successfully!")
+                if st.button("Submit Evaluation"):
+                    # Save evaluation
+                    evaluation = {
+                        'Evaluator': evaluator_username,
+                        'Summary Score': summary_score,
+                        'Tag Score': tag_score,
+                        'Feedback': feedback
+                    }
 
-                # Move to the next entry
-                if st.session_state.current_eval_index < total_assigned_entries - 1:
-                    st.session_state.current_eval_index += 1
-                    st.rerun()  # Refresh the page to show the next entry
-                else:
-                    st.success("You have completed all assigned evaluations.")
+                    # Update evaluations
+                    existing_evaluations = current_entry.get('Evaluations', [])
+                    if evaluator_previous_evaluation:
+                        # Remove the old evaluation
+                        existing_evaluations = [eval for eval in existing_evaluations if eval['Evaluator'] != evaluator_username]
+                        is_new_evaluation = False
+                        old_summary_score = evaluator_previous_evaluation['Summary Score']
+                        old_tag_score = evaluator_previous_evaluation['Tag Score']
+                    else:
+                        is_new_evaluation = True
+                        old_summary_score = 0
+                        old_tag_score = 0
 
+                    # Add the new evaluation
+                    existing_evaluations.append(evaluation)
+                    current_entry['Evaluations'] = existing_evaluations
 
-        if st.button("Logout"):
-            st.session_state['evaluator_logged_in'] = False
-            st.session_state.pop('assigned_entries', None)
-            st.session_state.pop('current_eval_index', None)
-            st.success("Logged out successfully!")
-            st.rerun()
+                    # Update entry in Redis
+                    institution_manager.update_entry(evaluator_institution, current_entry)
+
+                    # Update institution statistics
+                    redis_manager.update_institution_stats(
+                        evaluator_institution,
+                        summary_score,
+                        tag_score,
+                        is_new_evaluation,
+                        old_summary_score,
+                        old_tag_score
+                    )
+
+                    # Save last completed entry index for this evaluator
+                    redis_manager.redis_client.set(f"{evaluator_username}:last_completed_entry_index", current_eval_index)
+
+                    # Indicate success before moving to the next entry
+                    st.markdown("### Submission Successful!")
+                    st.success("Your evaluation has been submitted.")
+                    # Reset 're_evaluating' state and clear session variables
+                    st.session_state['re_evaluating'] = False
+                    st.session_state.pop(f"summary_score_{current_eval_index}", None)
+                    st.session_state.pop(f"tag_score_{current_eval_index}", None)
+                    st.session_state.pop(f"evaluation_feedback_{current_eval_index}", None)
+                    st.rerun()
+
+    elif page_selection == "Progress & Statistics":
+        # ---- The Progress & Statistics Page ----
+        st.markdown(f"### Progress for {evaluator_username}")
+
+        # Calculate progress
+        assigned_entries = st.session_state.get('assigned_entries', [])
+        completed_evaluations = sum(
+            1 for entry in assigned_entries if any(eval['Evaluator'] == evaluator_username for eval in entry.get('Evaluations', []))
+        )
+        st.write(f"Entries Assigned: {len(assigned_entries)}")
+        st.write(f"Evaluations Completed: {completed_evaluations}")
+        st.progress(completed_evaluations / len(assigned_entries) if assigned_entries else 0)
+
+        # Display institution-specific statistics
+        st.markdown(f"### {evaluator_institution} Statistics")
+
+        entries = institution_manager.get_all_entries(evaluator_institution)
+        total_entries = len(entries)
+
+        # Retrieve statistics from Redis
+        stats = redis_manager.get_institution_stats(evaluator_institution)
+
+        if stats['total_evaluations'] > 0:
+            cumulative_summary = stats['cumulative_summary']
+            cumulative_tag = stats['cumulative_tag']
+            total_evaluations = stats['total_evaluations']
+
+            avg_summary = cumulative_summary / total_evaluations if total_evaluations > 0 else 0.0
+            avg_tag = cumulative_tag / total_evaluations if total_evaluations > 0 else 0.0
+
+            st.write(f"Total Entries: {total_entries}")
+            st.write(f"Total Evaluations: {total_evaluations}")
+            st.metric("Average Summary Score", f"{avg_summary:.2f}")
+            st.metric("Average Tag Score", f"{avg_tag:.2f}")
+        else:
+            st.write("No evaluations found for this institution.")
