@@ -1,10 +1,8 @@
 import streamlit as st
 
 class AnalysisPage:
-    def __init__(self, institution_manager, redis_manager, login_manager):
-        self.institution_manager = institution_manager
-        self.redis_manager = redis_manager
-        self.login_manager = login_manager
+    def __init__(self, db_manager):
+        self.db_manager = db_manager
 
     def show(self):
         st.header("Analysis Mode")
@@ -19,42 +17,33 @@ class AnalysisPage:
         cumulative_tag_total = 0
         institution_stats_list = []
 
+        # Calculate stats for each institution
         for institution in institutions:
-            # Fetching data from Redis
-            entries = self.institution_manager.get_all_entries(institution)
+            # Fetch entries and stats
+            entries = self.db_manager.get_selected_entries(institution)
             total_entries += len(entries)
 
-            # Redis stats retrieval
-            stats_key = f"{institution}_stats"
-            stats = self.redis_manager.redis_client.hgetall(stats_key)
+            stats = self.db_manager.get_institution_stats(institution)
+            cumulative_summary = stats['cumulative_summary']
+            cumulative_tag = stats['cumulative_tag']
+            total_evals = stats['total_evaluations']
 
-            if stats:
-                cumulative_summary = float(stats.get('cumulative_summary', 0))
-                cumulative_tag = float(stats.get('cumulative_tag', 0))
-                total_evals = int(stats.get('total_evaluations', 0))
+            # Compute averages
+            avg_summary = cumulative_summary / total_evals if total_evals > 0 else 0.0
+            avg_tag = cumulative_tag / total_evals if total_evals > 0 else 0.0
 
-                avg_summary = cumulative_summary / total_evals if total_evals > 0 else 0.0
-                avg_tag = cumulative_tag / total_evals if total_evals > 0 else 0.0
+            total_evaluations += total_evals
+            cumulative_summary_total += cumulative_summary
+            cumulative_tag_total += cumulative_tag
 
-                total_evaluations += total_evals
-                cumulative_summary_total += cumulative_summary
-                cumulative_tag_total += cumulative_tag
+            institution_stats_list.append({
+                'Institution': institution,
+                'Average Summary Score': round(avg_summary, 2),
+                'Average Tag Score': round(avg_tag, 2),
+                'Total Evaluations': total_evals
+            })
 
-                institution_stats_list.append({
-                    'Institution': institution,
-                    'Average Summary Score': round(avg_summary, 2),
-                    'Average Tag Score': round(avg_tag, 2),
-                    'Total Evaluations': total_evals
-                })
-            else:
-                institution_stats_list.append({
-                    'Institution': institution,
-                    'Average Summary Score': 0.0,
-                    'Average Tag Score': 0.0,
-                    'Total Evaluations': 0
-                })
-
-        # Display the institution stats
+        # Display stats for each institution
         for stats in institution_stats_list:
             st.write(f"**{stats['Institution']}**")
             st.write(f"- Average Summary Score: {stats['Average Summary Score']}")
@@ -63,7 +52,7 @@ class AnalysisPage:
 
         # Display combined averages across all institutions
         st.subheader("Combined Averages Across All Institutions")
-        
+
         combined_avg_summary_score = cumulative_summary_total / total_evaluations if total_evaluations > 0 else 0.0
         combined_avg_tag_score = cumulative_tag_total / total_evaluations if total_evaluations > 0 else 0.0
         combined_aggregate_score = (combined_avg_summary_score + combined_avg_tag_score) / 2
@@ -82,17 +71,17 @@ class AnalysisPage:
         if st.button("Search Entry"):
             entry_found = None
             for institution in institutions:
-                entries = self.institution_manager.get_all_entries(institution)
-                for entry in entries:
-                    if entry.get('Event Number') == event_number_search:
-                        entry_found = entry
-                        break
+                entries = self.db_manager.get_selected_entries(institution)
+                entry_found = next((entry for entry in entries if entry.get('Event Number') == event_number_search), None)
+                if entry_found:
+                    break
 
             if entry_found:
                 st.write(f"Entry Found: Event Number {entry_found.get('Event Number')}")
-                if 'Evaluations' in entry_found:
+                evaluations = entry_found.get('Evaluations', [])
+                if evaluations:
                     st.write("### Evaluations for this Entry")
-                    for evaluation in entry_found['Evaluations']:
+                    for evaluation in evaluations:
                         st.write(f"Evaluator: {evaluation['Evaluator']}")
                         st.write(f"Summary Score: {evaluation['Summary Score']}")
                         st.write(f"Tag Score: {evaluation['Tag Score']}")
@@ -105,19 +94,19 @@ class AnalysisPage:
 
         # Filter Evaluations by Evaluator
         st.subheader("Filter Evaluations by Evaluator")
-        evaluators = sorted(self.login_manager.evaluator_credentials.keys())
+        evaluators = ["Evaluator1", "Evaluator2", "Evaluator3"]  # Add evaluators or fetch from a relevant source
         selected_evaluator = st.selectbox("Select Evaluator", evaluators)
 
         if selected_evaluator:
             st.write(f"Evaluations by {selected_evaluator}")
             for institution in institutions:
-                entries = self.institution_manager.get_all_entries(institution)
+                entries = self.db_manager.get_selected_entries(institution)
                 for entry in entries:
-                    if 'Evaluations' in entry:
-                        for evaluation in entry['Evaluations']:
-                            if evaluation['Evaluator'] == selected_evaluator:
-                                st.write(f"### Entry: {entry.get('Event Number')}")
-                                st.write(f"Summary Score: {evaluation['Summary Score']}")
-                                st.write(f"Tag Score: {evaluation['Tag Score']}")
-                                st.write(f"Feedback: {evaluation['Feedback']}")
-                                st.markdown("---")
+                    evaluations = entry.get('Evaluations', [])
+                    for evaluation in evaluations:
+                        if evaluation['Evaluator'] == selected_evaluator:
+                            st.write(f"### Entry: {entry.get('Event Number')}")
+                            st.write(f"Summary Score: {evaluation['Summary Score']}")
+                            st.write(f"Tag Score: {evaluation['Tag Score']}")
+                            st.write(f"Feedback: {evaluation['Feedback']}")
+                            st.markdown("---")

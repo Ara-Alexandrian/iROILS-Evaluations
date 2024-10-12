@@ -2,106 +2,100 @@ import json
 import logging
 
 class InstitutionManager:
-    """Manages institution data stored in Redis."""
+    """Manages institution data stored in Redis and PostgreSQL."""
 
-    def __init__(self, redis_manager):
+    def __init__(self, redis_manager, postgres_manager):
         self.redis_manager = redis_manager
-        self.redis_client = redis_manager.redis_client
+        self.postgres_manager = postgres_manager
         self.logger = logging.getLogger(__name__)
 
     def get_all_entries(self, institution):
-        """Retrieve all entries for the institution."""
-        entries_json = self.redis_client.get(f"{institution}:entries")
-        if entries_json:
-            try:
-                entries = json.loads(entries_json)
-                return entries
-            except json.JSONDecodeError as e:
-                self.logger.error(f"JSON decode error for all entries: {e}")
-                return []
-        else:
+        """Retrieve all entries for the institution from Redis."""
+        try:
+            entries = self.redis_manager.get_selected_entries(institution)
+            return entries
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve entries for {institution}: {e}")
             return []
+
+    def update_entry(self, institution, updated_entry):
+        """Update a single entry for the institution in Redis and PostgreSQL."""
+        self.redis_manager.update_entry(institution, updated_entry)
+        self.logger.info(f"Entry {updated_entry['Event Number']} for {institution} updated in Redis and PostgreSQL.")
 
     def get_selected_entries(self, institution):
         """Retrieve selected entries for the institution."""
-        all_entries = self.get_all_entries(institution)
-        selected_entries = [entry for entry in all_entries if entry.get('Selected') == 'Select for Evaluation']
-        return selected_entries
+        return self.redis_manager.get_selected_entries(institution)
 
     def get_evaluation_scores(self, institution):
-        """Retrieve evaluation scores for a specific institution."""
-        scores_json = self.redis_client.get(f"{institution}:evaluation_scores")
-        if scores_json:
-            try:
-                scores = json.loads(scores_json)
-                return scores
-            except json.JSONDecodeError as e:
-                self.logger.error(f"JSON decode error for evaluation scores: {e}")
-                return {}
-        else:
-            return {}
+        """Retrieve evaluation scores for the institution from Redis."""
+        return self.redis_manager.get_evaluation_scores(institution)
 
     def reset_institution_data(self, institution):
-        """Reset all data (entries, evaluations, snapshots, and stats) for the institution in Redis."""
+        """Reset all data for an institution in both Redis and PostgreSQL."""
         try:
-            # Delete all entries for the institution
-            self.redis_client.delete(f"{institution}:entries")
+            # Reset Redis data
+            self.redis_manager.reset_data(institution)
+            self.logger.info(f"Redis data reset for institution {institution}")
 
-            # Delete all evaluation scores for the institution
-            self.redis_client.delete(f"{institution}:evaluation_scores")
-            
-            # Delete snapshots for the institution
-            self.redis_client.delete(f"{institution}:snapshot")
-            
-            # Delete cumulative stats for the institution (e.g., averages and totals)
-            self.redis_client.hdel(f"{institution}_stats", 'cumulative_summary', 'cumulative_tag', 'total_evaluations')
+            # Reset PostgreSQL data
+            self.postgres_manager.reset_institution_data(institution)
+            self.logger.info(f"PostgreSQL data reset for institution {institution}")
 
-            # Log success
-            self.logger.info(f"Entries, evaluations, snapshots, and stats for {institution} have been reset in Redis.")
         except Exception as e:
-            # Log any errors
-            self.logger.error(f"Failed to reset data for {institution} in Redis: {e}")
-
+            self.logger.error(f"Failed to reset data for institution {institution}: {e}")
+            raise e
 
     def save_institution_data(self, institution, entries):
-        """Save all entries for the institution."""
-        try:
-            entries_json = json.dumps(entries)
-            self.redis_client.set(f"{institution}:entries", entries_json)
-        except Exception as e:
-            self.logger.error(f"Failed to save institution data: {e}")
-
-    def update_entry(self, institution, updated_entry):
-        """Update a single entry for the institution."""
-        try:
-            entries = self.get_all_entries(institution)
-            for idx, entry in enumerate(entries):
-                if entry['Event Number'] == updated_entry['Event Number']:
-                    entries[idx] = updated_entry
-                    break
-            else:
-                # Entry not found, add it
-                entries.append(updated_entry)
-            self.save_institution_data(institution, entries)
-        except Exception as e:
-            self.logger.error(f"Failed to update entry: {e}")
-
-    def update_selection(self, institution, event_number, selection_status):
-        """Update the selection status of a specific entry."""
-        try:
-            entries = self.get_all_entries(institution)
-            for entry in entries:
-                if entry['Event Number'] == event_number:
-                    entry['Selected'] = selection_status
-                    break
-            self.save_institution_data(institution, entries)
-        except Exception as e:
-            self.logger.error(f"Failed to update selection: {e}")
+        """Save all entries for the institution in Redis and PostgreSQL."""
+        self.redis_manager.save_selected_entries(institution, entries)
+        self.logger.info(f"Data for {institution} has been saved in Redis and PostgreSQL.")
 
     def initialize_entries(self, institution, entries):
-        """Initialize entries with default values if necessary and save them."""
-        for entry in entries:
-            entry.setdefault('Selected', 'Do Not Select')
-            entry.setdefault('Evaluation', None)
-            entry.setdefault('Assigned Tags', [])
-        self.save_institution_data(institution, entries)
+        """Initialize entries with default values and save them in Redis and PostgreSQL."""
+        try:
+            for entry in entries:
+                entry.setdefault('Selected', 'Do Not Select')
+                entry.setdefault('Evaluation', None)
+                entry.setdefault('Assigned Tags', [])
+
+            self.save_institution_data(institution, entries)
+            self.logger.info(f"Initialized and saved entries for institution {institution}")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize entries for institution {institution}: {e}")
+            raise e
+
+    def load_from_postgres(self, institution):
+        """Load all entries and evaluation scores for the institution from PostgreSQL."""
+        try:
+            query_entries = """
+            SELECT event_number, data FROM entries WHERE institution = %s;
+            """
+            query_scores = """
+            SELECT evaluator, entry_number, summary_score, tag_score, feedback 
+            FROM evaluations WHERE institution = %s;
+            """
+            with self.postgres_manager.connection.cursor() as cursor:
+                cursor.execute(query_entries, (institution,))
+                entries = cursor.fetchall()
+
+                cursor.execute(query_scores, (institution,))
+                evaluation_scores = cursor.fetchall()
+
+            entries_dict = [json.loads(entry[1]) for entry in entries]
+            evaluation_scores_dict = {}
+            for score in evaluation_scores:
+                evaluator, entry_number, summary_score, tag_score, feedback = score
+                if entry_number not in evaluation_scores_dict:
+                    evaluation_scores_dict[entry_number] = []
+                evaluation_scores_dict[entry_number].append({
+                    'Evaluator': evaluator,
+                    'Summary Score': summary_score,
+                    'Tag Score': tag_score,
+                    'Feedback': feedback
+                })
+
+            return entries_dict, evaluation_scores_dict
+        except Exception as e:
+            self.logger.error(f"Error loading data from PostgreSQL for institution {institution}: {e}")
+            return [], {}

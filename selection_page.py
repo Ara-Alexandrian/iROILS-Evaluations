@@ -2,59 +2,87 @@
 
 import streamlit as st
 import random
-import streamlit.components.v1 as components
 
 class SelectionPage:
-    def __init__(self, institution_manager, institution):
-        self.institution_manager = institution_manager
+    def __init__(self, db_manager, institution):
+        self.db_manager = db_manager
         self.institution = institution
 
     def show(self):
         st.header(f"Selection Mode - {self.institution}")
 
-        # Use entries from session state
+        # Use entries from session state or fetch from the database
         entries = st.session_state.get('all_entries', [])
+        if not entries:
+            entries = self.db_manager.get_selected_entries(self.institution)
+            st.session_state['all_entries'] = entries
+
         total_entries = len(entries)
 
         # Add search input and filter options
+        self.render_search_and_filters(entries)
+
+        # Update total entries after filtering
+        filtered_entries = self.get_filtered_entries(entries)
+        total_filtered_entries = len(filtered_entries)
+
+        if total_filtered_entries == 0:
+            st.warning("No entries match the search and filter criteria.")
+            return
+
+        # Select random entries button
+        self.select_random_entries(filtered_entries)
+
+        # Initialize and bound the current index for entry navigation
+        self.initialize_current_index(total_filtered_entries)
+
+        # Display navigation and current entry
+        self.display_navigation(filtered_entries, total_filtered_entries)
+
+        # Display current entry details
+        current_entry = filtered_entries[st.session_state.current_index]
+        self.display_entry_details(current_entry, total_filtered_entries)
+
+    def render_search_and_filters(self, entries):
+        """Render search and filter options for selecting entries."""
         st.markdown("### Search and Filter Entries")
 
         # Search input
-        search_query = st.text_input("Search by Narrative or Assigned Tags", key='selection_search_query')
+        st.text_input("Search by Narrative or Assigned Tags", key='selection_search_query')
 
-        # Filter options
+        # Filter by Selection Status and Tags
         col1, col2 = st.columns(2)
         with col1:
-            selection_filter = st.selectbox(
+            st.selectbox(
                 "Filter by Selection Status",
                 options=["All", "Selected", "Not Selected"],
                 key='selection_filter'
             )
         with col2:
-            # Filter by Assigned Tag
-            all_tags = set()
-            for entry in entries:
-                tags = entry.get('Assigned Tags', '').split(',')
-                tags = [tag.strip() for tag in tags if tag.strip()]
-                all_tags.update(tags)
-            tag_filter = st.multiselect(
+            all_tags = {tag.strip() for entry in entries for tag in entry.get('Assigned Tags', '').split(',') if tag.strip()}
+            st.multiselect(
                 "Filter by Assigned Tags",
                 options=sorted(all_tags),
                 key='tag_filter'
             )
 
-        # Filter entries based on search and filter criteria
+    def get_filtered_entries(self, entries):
+        """Filter entries based on search, selection, and tag criteria."""
+        search_query = st.session_state.get('selection_search_query', '').lower()
+        selection_filter = st.session_state.get('selection_filter', 'All')
+        tag_filter = st.session_state.get('tag_filter', [])
+
         filtered_entries = entries
 
         # Apply search filter
         if search_query:
             filtered_entries = [
                 entry for entry in filtered_entries
-                if search_query.lower() in entry.get('Narrative', '').lower() or
-                   search_query.lower() in entry.get('Assigned Tags', '').lower()
+                if search_query in entry.get('Narrative', '').lower() or
+                   search_query in entry.get('Assigned Tags', '').lower()
             ]
 
-        # Apply selection status filter
+        # Apply selection filter
         if selection_filter != "All":
             status = 'Select for Evaluation' if selection_filter == "Selected" else 'Do Not Select'
             filtered_entries = [
@@ -69,59 +97,59 @@ class SelectionPage:
                 if any(tag.strip() in tag_filter for tag in entry.get('Assigned Tags', '').split(','))
             ]
 
-        # Update total entries after filtering
-        total_filtered_entries = len(filtered_entries)
+        return filtered_entries
 
-        # Handle case where no entries match the filters
-        if total_filtered_entries == 0:
-            st.warning("No entries match the search and filter criteria.")
-            return
-
-        # Button to select 200 random entries
+    def select_random_entries(self, filtered_entries):
+        """Select 200 random entries from the filtered list."""
         if st.button("Select 200 Random Entries"):
-            num_to_select = 200
-            # From the filtered entries, get unselected entries
-            unselected_entries = [
-                entry for entry in filtered_entries
-                if entry.get('Selected', 'Do Not Select') == 'Do Not Select'
-            ]
-            num_available = len(unselected_entries)
-            if num_available == 0:
-                st.warning("No unselected entries are available to select.")
-            else:
-                num_to_select = min(num_to_select, num_available)
+            # Filter out unselected entries
+            unselected_entries = [entry for entry in filtered_entries if entry.get('Selected', 'Do Not Select') == 'Do Not Select']
+            num_to_select = min(200, len(unselected_entries))
+
+            if num_to_select > 0:
+                # Randomly select 200 entries from the unselected ones
                 random_entries = random.sample(unselected_entries, num_to_select)
                 for entry in random_entries:
                     entry['Selected'] = 'Select for Evaluation'
-                    # Update entry in Redis
-                    self.institution_manager.update_entry(self.institution, entry)
-                    # Update session state
+
+                # Batch update the selected entries in Redis and PostgreSQL
+                self.db_manager.update_entries_batch(self.institution, random_entries)
+
+                # Update session state
+                for entry in random_entries:
                     for idx, e in enumerate(st.session_state['all_entries']):
                         if e['Event Number'] == entry['Event Number']:
                             st.session_state['all_entries'][idx]['Selected'] = 'Select for Evaluation'
                             break
-                st.success(f"{num_to_select} random entries have been selected for evaluation.")
 
-        # Initialize current index if not set
+                # Display a success message
+                st.success(f"{num_to_select} random entries have been selected for evaluation.")
+                st.rerun()  # Reload to reflect the changes
+            else:
+                st.warning("No unselected entries are available to select.")
+
+    def initialize_current_index(self, total_filtered_entries):
+        """Initialize and ensure current index is within bounds."""
         if 'current_index' not in st.session_state:
             st.session_state['current_index'] = 0
 
         # Ensure current_index is within bounds
-        if st.session_state.current_index >= total_filtered_entries:
-            st.session_state.current_index = total_filtered_entries - 1
-        if st.session_state.current_index < 0:
-            st.session_state.current_index = 0
+        st.session_state['current_index'] = max(0, min(st.session_state['current_index'], total_filtered_entries - 1))
 
-        # Navigation
+    def display_navigation(self, filtered_entries, total_filtered_entries):
+        """Display entry navigation controls."""
         st.markdown("### Navigate Entries")
 
-        # Navigation buttons
         col1, col2, col3 = st.columns([1, 2, 1])
         with col1:
             if st.button("Previous Entry") and st.session_state.current_index > 0:
                 st.session_state.current_index -= 1
+                st.rerun()
+        with col3:
+            if st.button("Next Entry") and st.session_state.current_index < total_filtered_entries - 1:
+                st.session_state.current_index += 1
+                st.rerun()
         with col2:
-            # Slider to navigate entries (enumerated from 1)
             st.session_state.current_index = st.slider(
                 "Select Entry",
                 min_value=1,
@@ -129,22 +157,15 @@ class SelectionPage:
                 value=st.session_state.current_index + 1,
                 format="Entry %d",
                 key='entry_slider'
-            ) - 1  # Adjust index to be 0-based
-        with col3:
-            if st.button("Next Entry") and st.session_state.current_index < total_filtered_entries - 1:
-                st.session_state.current_index += 1
+            ) - 1  # Adjust to 0-based index
 
-        # Display progress bar or visual indicator
-        progress = (st.session_state.current_index + 1) / total_filtered_entries
-        st.progress(progress)
+        # Display progress bar
+        st.progress((st.session_state.current_index + 1) / total_filtered_entries)
 
-        current_entry = filtered_entries[st.session_state.current_index]
-
+    def display_entry_details(self, current_entry, total_filtered_entries):
+        """Display the details of the current entry."""
         entry_number_display = st.session_state.current_index + 1
-
-        # Display the current entry with enumeration from 1
         st.write(f"### Entry {entry_number_display} of {total_filtered_entries} - Event Number: {current_entry.get('Event Number', 'N/A')}")
-
         st.write(f"**Narrative:** {current_entry.get('Narrative', '')}")
         st.write(f"**Cleaned Narrative:** {current_entry.get('Cleaned Narrative', '')}")
         st.write(f"**Assigned Tags:** {current_entry.get('Assigned Tags', '')}")
@@ -159,40 +180,21 @@ class SelectionPage:
             key=f"select_{current_entry.get('Event Number', st.session_state.current_index)}"
         )
 
-        # Inject JavaScript for hotkey (Press 'T' to toggle selection)
-        # Note: This method may have limitations across different browsers and is not guaranteed to work reliably.
-        components.html(f"""
-        <script>
-            const doc = window.parent.document;
-            const checkbox = doc.querySelector('input[data-testid="stSessionState-select_{current_entry.get('Event Number', st.session_state.current_index)}"]');
-            document.addEventListener('keydown', function(event) {{
-                if (['INPUT', 'TEXTAREA'].indexOf(doc.activeElement.tagName) === -1) {{
-                    if (event.code === 'KeyT') {{
-                        if (checkbox) {{
-                            checkbox.click();
-                        }}
-                    }}
-                }}
-            }});
-        </script>
-        """, height=0)
-
-        # Update selection status if changed
+        # Handle selection change
         if selection != is_selected:
-            selection_status = 'Select for Evaluation' if selection else 'Do Not Select'
-            current_entry['Selected'] = selection_status
+            current_entry['Selected'] = 'Select for Evaluation' if selection else 'Do Not Select'
+            self.update_entry_selection(current_entry)
 
-            # Update entry in Redis
-            self.institution_manager.update_entry(self.institution, current_entry)
-
-            # Update session state
-            for idx, entry in enumerate(st.session_state['all_entries']):
-                if entry['Event Number'] == current_entry['Event Number']:
-                    st.session_state['all_entries'][idx]['Selected'] = selection_status
-                    break
-
-            st.success(f"Entry {current_entry.get('Event Number', 'N/A')} updated.")
-
-        # Summary at the bottom
+        # Summary
         st.markdown(f"**Total Filtered Entries:** {total_filtered_entries}")
-        st.markdown(f"**Total Entries in Database:** {total_entries}")
+        st.markdown(f"**Total Entries in Database:** {len(st.session_state['all_entries'])}")
+
+    def update_entry_selection(self, entry):
+        """Update the selection status of an entry in both Redis and PostgreSQL."""
+        self.db_manager.update_entry(self.institution, entry)
+
+        # Update session state
+        for idx, e in enumerate(st.session_state['all_entries']):
+            if e['Event Number'] == entry['Event Number']:
+                st.session_state['all_entries'][idx]['Selected'] = entry['Selected']
+                break

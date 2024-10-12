@@ -1,15 +1,17 @@
+# user_submission.py
+
 import streamlit as st
 import pandas as pd
 import numpy as np
+from database_manager import DatabaseManager  # Now using DatabaseManager
 from login_manager import LoginManager
 from institution_manager import InstitutionManager
-from redis_manager import RedisManager
 from network_resolver import NetworkResolver
 import configparser
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 
 # Load configuration
 config = configparser.ConfigParser()
@@ -18,15 +20,36 @@ config.read('config.ini')
 # Initialize the NetworkResolver
 resolver = NetworkResolver(config)
 
-# Resolve Redis host
-redis_host = resolver.resolve_host()
+# Resolve Redis host, PostgreSQL, and Ollama API endpoint
+redis_host, ollama_endpoint = resolver.resolve_all()
+
+# Resolve PostgreSQL credentials dynamically based on the network
+local_ip = resolver.get_local_ip()
+environment = resolver.resolve_environment(local_ip)
+
+# Extract PostgreSQL configuration based on the environment
+psql_host = config['postgresql'][f'psql_{environment}']
+psql_port = config['postgresql'].getint('psql_port', 5432)
+psql_user = config['postgresql']['psql_user']
+psql_password = config['postgresql']['psql_password']
+psql_dbname = config['postgresql']['psql_dbname']
 redis_port = config['Redis'].getint('redis_port', 6379)
-redis_manager = RedisManager(redis_host, redis_port)
 
-# Initialize the InstitutionManager
-institution_manager = InstitutionManager(redis_manager)
+# Initialize DatabaseManager with required credentials
+db_manager = DatabaseManager(
+    redis_host=redis_host,
+    redis_port=redis_port,
+    psql_host=psql_host,
+    psql_port=psql_port,
+    psql_user=psql_user,
+    psql_password=psql_password,
+    psql_dbname=psql_dbname
+)
 
-# Initialize the LoginManager
+# Initialize the InstitutionManager with DatabaseManager
+institution_manager = InstitutionManager(db_manager, db_manager)  # db_manager handles both Redis and PostgreSQL
+
+# Initialize LoginManager
 login_manager = LoginManager()
 
 # Streamlit UI
@@ -42,7 +65,7 @@ if not st.session_state.get('evaluator_logged_in', False):
         if login_manager.evaluator_login(st.session_state, evaluator_username, evaluator_password):
             st.success("Login successful!")
             # Load the last completed entry index from Redis for this evaluator
-            last_completed_entry_index = redis_manager.redis_client.get(f"{evaluator_username}:last_completed_entry_index")
+            last_completed_entry_index = db_manager.redis_client.get(f"{evaluator_username}:last_completed_entry_index")
             if last_completed_entry_index is not None:
                 st.session_state['current_eval_index'] = int(last_completed_entry_index)
             else:
@@ -55,18 +78,26 @@ else:
     evaluator_username = st.session_state['evaluator_username']
     evaluator_institution = st.session_state['evaluator_institution']
 
+    # Add a Refresh Data button
+    if st.button("Refresh Data"):
+        st.session_state.pop('assigned_entries', None)
+        st.session_state.pop('total_assigned_entries', None)
+        st.session_state.pop('current_eval_index', None)
+        st.session_state.pop('re_evaluating', None)
+        st.rerun()
+
     # Page navigation
     page_selection = st.radio("Choose Page", ["Evaluation Submission", "Progress & Statistics"])
 
     if page_selection == "Evaluation Submission":
-        # ---- The Evaluation Submission Page ----
         st.markdown(f"### Welcome, {evaluator_username}!")
 
         # Load assigned entries only if not already in session state
         if 'assigned_entries' not in st.session_state:
-            all_entries = institution_manager.get_all_entries(evaluator_institution)
+            assigned_entries = db_manager.get_selected_entries(evaluator_institution)
+            # Filter entries that are selected for evaluation
             assigned_entries = [
-                entry for entry in all_entries if entry.get('Selected') == 'Select for Evaluation'
+                entry for entry in assigned_entries if entry.get('Selected') == 'Select for Evaluation'
             ]
             st.session_state['assigned_entries'] = assigned_entries
             st.session_state['total_assigned_entries'] = len(assigned_entries)
@@ -203,11 +234,11 @@ else:
                     existing_evaluations.append(evaluation)
                     current_entry['Evaluations'] = existing_evaluations
 
-                    # Update entry in Redis
-                    institution_manager.update_entry(evaluator_institution, current_entry)
+                    # Update entry in the database
+                    db_manager.update_entry(evaluator_institution, current_entry)
 
                     # Update institution statistics
-                    redis_manager.update_institution_stats(
+                    db_manager.update_institution_stats(
                         evaluator_institution,
                         summary_score,
                         tag_score,
@@ -217,7 +248,7 @@ else:
                     )
 
                     # Save last completed entry index for this evaluator
-                    redis_manager.redis_client.set(f"{evaluator_username}:last_completed_entry_index", current_eval_index)
+                    db_manager.redis_client.set(f"{evaluator_username}:last_completed_entry_index", current_eval_index)
 
                     # Indicate success before moving to the next entry
                     st.markdown("### Submission Successful!")
@@ -227,10 +258,12 @@ else:
                     st.session_state.pop(f"summary_score_{current_eval_index}", None)
                     st.session_state.pop(f"tag_score_{current_eval_index}", None)
                     st.session_state.pop(f"evaluation_feedback_{current_eval_index}", None)
+                    # Move to the next entry
+                    if current_eval_index < total_assigned_entries - 1:
+                        st.session_state['current_eval_index'] += 1
                     st.rerun()
 
     elif page_selection == "Progress & Statistics":
-        # ---- The Progress & Statistics Page ----
         st.markdown(f"### Progress for {evaluator_username}")
 
         # Calculate progress
@@ -245,11 +278,8 @@ else:
         # Display institution-specific statistics
         st.markdown(f"### {evaluator_institution} Statistics")
 
-        entries = institution_manager.get_all_entries(evaluator_institution)
-        total_entries = len(entries)
-
-        # Retrieve statistics from Redis
-        stats = redis_manager.get_institution_stats(evaluator_institution)
+        # Retrieve statistics from the database
+        stats = db_manager.get_institution_stats(evaluator_institution)
 
         if stats['total_evaluations'] > 0:
             cumulative_summary = stats['cumulative_summary']
@@ -259,9 +289,14 @@ else:
             avg_summary = cumulative_summary / total_evaluations if total_evaluations > 0 else 0.0
             avg_tag = cumulative_tag / total_evaluations if total_evaluations > 0 else 0.0
 
-            st.write(f"Total Entries: {total_entries}")
             st.write(f"Total Evaluations: {total_evaluations}")
             st.metric("Average Summary Score", f"{avg_summary:.2f}")
             st.metric("Average Tag Score", f"{avg_tag:.2f}")
         else:
             st.write("No evaluations found for this institution.")
+
+    # Logout button
+    if st.button("Logout"):
+        login_manager.logout(st.session_state)
+        st.session_state['evaluator_logged_in'] = False
+        st.rerun()
