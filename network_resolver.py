@@ -34,35 +34,3 @@ class NetworkResolver:
         else:
             self.logger.warning(f"Unknown subnet {local_ip}. Defaulting to 'home' environment.")
             return 'home'  # Default to 'home' if subnet is unknown
-
-    def resolve_host(self):
-        """Determine the appropriate Redis host based on local subnet information."""
-        local_ip = self.get_local_ip()
-        environment = self.resolve_environment(local_ip)
-        redis_host_key = f"host_{environment}"
-        try:
-            redis_host = self.config['Redis'][redis_host_key]
-            self.logger.info(f"Using Redis host for {environment} environment: {redis_host}")
-            return redis_host
-        except KeyError:
-            raise KeyError(f"Redis host configuration '{redis_host_key}' not found in config.ini.")
-
-    def resolve_ollama_endpoint(self):
-        """Resolve the correct Ollama API endpoint based on the network."""
-        local_ip = self.get_local_ip()
-        environment = self.resolve_environment(local_ip)
-        endpoint_key = f"endpoint_{environment}"
-        try:
-            ollama_endpoint = self.config['API'][endpoint_key]
-            self.logger.info(f"Using Ollama API endpoint for {environment} environment: {ollama_endpoint}")
-            return ollama_endpoint
-        except KeyError:
-            raise KeyError(f"API endpoint configuration '{endpoint_key}' not found in config.ini.")
-
-    def resolve_all(self):
-        """Resolve both Redis host and Ollama API endpoint."""
-        local_ip = self.get_local_ip()
-        environment = self.resolve_environment(local_ip)
-        redis_host = self.resolve_host()
-        ollama_endpoint = self.resolve_ollama_endpoint()
-        return redis_host, ollama_endpoint

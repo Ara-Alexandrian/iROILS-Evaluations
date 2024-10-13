@@ -1,17 +1,17 @@
 import streamlit as st
+import configparser
+import logging
 import pandas as pd
-from redis_manager import RedisManager, RedisSnapshotManager
-from login_manager import LoginManager
-from institution_manager import InstitutionManager
+from database_manager import DatabaseManager
 from network_resolver import NetworkResolver
+from login_manager import LoginManager
 from selection_page import SelectionPage
 from overview_page import OverviewPage
 from analysis_page import AnalysisPage
-import configparser
-import logging
+from analysis_methods import evaluate_and_tag_entries  # Import evaluation methods
 
 # Set up logging for debugging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 
 # Load the configuration file
 config = configparser.ConfigParser()
@@ -20,21 +20,27 @@ config.read('config.ini')
 # Initialize the NetworkResolver
 resolver = NetworkResolver(config)
 
-# Resolve Redis host and Ollama API endpoint
-redis_host = resolver.resolve_host()
-ollama_endpoint = resolver.resolve_ollama_endpoint()
+# Determine the environment using the NetworkResolver
+local_ip = resolver.get_local_ip()
+environment = resolver.resolve_environment(local_ip)
 
-# Connect to Redis
-redis_port = config['Redis'].getint('redis_port', 6379)
-redis_manager = RedisManager(redis_host, redis_port)
+# Extract PostgreSQL credentials based on the environment
+psql_host = config['postgresql'][f'psql_{environment}']  # Use 'psql_home' or 'psql_work'
+psql_port = config['postgresql'].getint('psql_port', 5432)
+psql_user = config['postgresql']['psql_user']
+psql_password = config['postgresql']['psql_password']
+psql_dbname = config['postgresql']['psql_dbname']
 
-# Initialize the InstitutionManager
-institution_manager = InstitutionManager(redis_manager)
+# Initialize the DatabaseManager with the resolved credentials
+db_manager = DatabaseManager(
+    psql_host=psql_host,
+    psql_port=psql_port,
+    psql_user=psql_user,
+    psql_password=psql_password,
+    psql_dbname=psql_dbname
+)
 
-# Set up the snapshot manager
-snapshot_manager = RedisSnapshotManager(redis_manager.redis_client)
-
-# Set up LoginManager
+# Initialize the LoginManager
 login_manager = LoginManager()
 
 # Streamlit UI
@@ -47,15 +53,64 @@ if 'logged_in' not in st.session_state:
 def reset_session_state():
     """Reset session state variables."""
     st.session_state.pop('all_entries', None)
-    st.session_state.pop('selected_entries', None)
     st.session_state.pop('total_entries', None)
     st.session_state.pop('current_index', None)
 
 def reset_institution_data():
-    """Reset data in Redis and reset session state variables."""
     selected_institution = st.session_state.get('institution_select', 'UAB')  # Default to 'UAB' if not set
-    institution_manager.reset_institution_data(selected_institution)  # Reset data in Redis
-    reset_session_state()
+    try:
+        st.write(f"Resetting data for institution: {selected_institution}")
+        db_manager.reset_data(selected_institution)  # Reset data in PostgreSQL
+
+        # Ensure session state is cleared after resetting
+        reset_session_state()
+        st.success(f"All data for {selected_institution} has been reset.")
+
+    except Exception as e:
+        st.error(f"Error during reset: {e}")
+
+def render_file_upload():
+    """Handle the file upload process."""
+    st.markdown("### Upload New Data")
+    uploaded_file = st.file_uploader("Upload New Data", type="xlsx")
+
+    if uploaded_file:
+        try:
+            # Read the uploaded file into a pandas DataFrame
+            df = pd.read_excel(uploaded_file)
+
+            # Replace NaN values with None (null in JSON)
+            df = df.where(pd.notnull(df), None)
+
+            # Remove 'Selected' column if it exists
+            if 'Selected' in df.columns:
+                df.drop(columns=['Selected'], inplace=True)
+                st.write("Removed 'Selected' column from uploaded data.")
+
+            # Convert the DataFrame to a list of dictionaries (entries)
+            new_entries = df.to_dict(orient="records")
+
+            # Ensure that 'Selected' is set to 'Do Not Select' by default
+            for entry in new_entries:
+                entry['Selected'] = 'Do Not Select'  # Force 'Do Not Select' for every entry
+
+            logging.info(f"Parsed {len(new_entries)} entries from the uploaded file.")
+
+            # Save entries to the database (PostgreSQL)
+            db_manager.save_selected_entries(st.session_state['institution_select'], new_entries)
+
+            # Force reload the entries into session state
+            all_entries = db_manager.get_selected_entries(st.session_state['institution_select'])
+            st.session_state['all_entries'] = all_entries
+            st.session_state['total_entries'] = len(all_entries)
+
+            st.success(f"New data for {st.session_state['institution_select']} uploaded successfully!")
+            st.rerun()  # Refresh the page so that the new data is displayed immediately
+        except Exception as e:
+            logging.error(f"Error processing uploaded file: {e}")
+            st.error(f"Error processing uploaded file: {e}")
+    else:
+        st.warning("Please upload a file before clicking 'Upload'.")
 
 # If the user is not logged in, show the login form
 if not st.session_state['logged_in']:
@@ -65,9 +120,9 @@ if not st.session_state['logged_in']:
 
     if st.button("Login"):
         if login_manager.login(st.session_state, admin_username, admin_password):
-            st.session_state['logged_in'] = True  # Set the logged_in flag to True on successful login
+            st.session_state['logged_in'] = True
             st.success("Login successful!")
-            st.rerun()  # Refresh the page after login
+            st.rerun()
         else:
             st.error("Invalid username or password")
 else:
@@ -80,104 +135,55 @@ else:
             st.rerun()
     else:
         # If the user is logged in and has admin role, display the dashboard
+        institution = st.selectbox("Select Institution", ["UAB", "MBPCC"], key='institution_select', on_change=reset_session_state)
 
-        # Handle institution selection with a callback to reset the session state
-        institution = st.selectbox(
-            "Select Institution", ["UAB", "MBPCC"],
-            key='institution_select',
-            on_change=reset_session_state
-        )
-
-        # Pull all entries from Redis or refresh when institution is changed
+        # Pull all entries from PostgreSQL or refresh when institution is changed
         if 'all_entries' not in st.session_state:
-            all_entries = institution_manager.get_all_entries(institution)
-            evaluation_scores = institution_manager.get_evaluation_scores(institution)
-            if all_entries:
-                st.session_state['all_entries'] = all_entries
-                st.session_state['evaluation_scores'] = evaluation_scores
-                st.session_state['total_entries'] = len(all_entries)
-            else:
+            all_entries = db_manager.get_selected_entries(institution)
+
+            if not all_entries:
                 st.session_state['all_entries'] = []
-                st.session_state['evaluation_scores'] = {}
                 st.session_state['total_entries'] = 0
                 st.warning("No data available for the selected institution.")
+            else:
+                st.session_state['all_entries'] = all_entries
+                st.session_state['total_entries'] = len(all_entries)
         else:
             all_entries = st.session_state['all_entries']
-            evaluation_scores = st.session_state['evaluation_scores']
-            st.session_state['total_entries'] = len(all_entries)  # Ensure total_entries is updated
+            st.session_state['total_entries'] = len(all_entries)
 
-        # Update mode selection to include Analysis Mode
+        # Choose the mode and display pages
         mode = st.radio("Choose Mode", ["Selection Mode", "Overview Mode", "Analysis Mode"], index=0)
 
-        # Display the appropriate page based on the selected mode
-        if mode == "Analysis Mode":
-            if st.session_state['total_entries'] > 0:
-                analysis_page = AnalysisPage(institution_manager, redis_manager, login_manager)
-                analysis_page.show()
-            else:
-                st.warning("No data available for the selected institution.")
-        elif mode == "Selection Mode":
-            if st.session_state['total_entries'] > 0:
-                selection_page = SelectionPage(institution_manager, institution)
-                selection_page.show()
-            else:
-                st.warning("No entries available for this institution.")
+        if mode == "Analysis Mode" and st.session_state['total_entries'] > 0:
+            # Perform analysis using analysis_methods.py
+            analyzed_entries = evaluate_and_tag_entries(all_entries)
+            # Process analysis and display the results
+            analysis_page = AnalysisPage(db_manager)
+            analysis_page.show()
+
+        elif mode == "Selection Mode" and st.session_state['total_entries'] > 0:
+            selection_page = SelectionPage(db_manager, institution)
+            selection_page.show()
+
         elif mode == "Overview Mode":
-            overview_page = OverviewPage(institution_manager, institution)
+            overview_page = OverviewPage(db_manager, institution)
             overview_page.show()
 
-            # Only display administrative options in Overview Mode
-            # Redis Snapshot and Reload Functionality
-            st.markdown("### Redis Snapshot and Data Management")
+            # **Data Management Options**
+            st.markdown("### Data Management")
+            
+            # Add the Upload Button
+            render_file_upload()
 
-            col1, col2, col3 = st.columns([1, 1, 1])
-
+            col1, col2 = st.columns([1, 1])
             with col1:
-                if st.button("Take Snapshot"):
-                    snapshot_manager.take_snapshot(institution)
-                    st.success(f"Snapshot for {institution} taken successfully!")
-                    st.rerun()
-
-            with col2:
-                if st.button("Load Snapshot"):
-                    snapshot_manager.load_snapshot(institution)
-                    reset_session_state()  # Clear session state variables
-                    st.success(f"Reloaded {institution} data from snapshot!")
-                    st.rerun()
-
-            with col3:
                 if st.button("Reset Data"):
                     reset_institution_data()
-                    st.success(f"All data for {institution} has been reset.")
                     st.rerun()
 
-            # Handle new data upload
-            st.markdown("### Upload New Data")
+            if st.button("Logout"):
+                login_manager.logout(st.session_state)
+                st.session_state['logged_in'] = False
+                st.rerun()
 
-            with st.form(key='upload_form'):
-                uploaded_file = st.file_uploader("Upload New Data", type="xlsx")
-                submit_upload = st.form_submit_button('Upload')
-
-            if submit_upload:
-                if uploaded_file is not None:
-                    try:
-                        df = pd.read_excel(uploaded_file)
-                        new_entries = df.to_dict(orient="records")
-                        # Initialize entries with default values
-                        institution_manager.initialize_entries(institution, new_entries)
-                        reset_session_state()  # Clear session state variables
-                        st.success(f"New data for {institution} uploaded successfully!")
-                        st.rerun()  # Refresh the page to update counts
-                    except Exception as e:
-                        st.error(f"Error processing uploaded file: {e}")
-                else:
-                    st.warning("Please upload a file before clicking 'Upload'.")
-
-        # Show total number of entries in the interface
-        st.write(f"Total number of entries in database: {st.session_state['total_entries']}")
-
-        # Logout button
-        if st.button("Logout"):
-            login_manager.logout(st.session_state)
-            st.session_state['logged_in'] = False  # Update the session state to indicate logout
-            st.rerun()  # Refresh the page after logout
