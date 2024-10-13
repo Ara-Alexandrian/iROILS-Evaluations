@@ -19,9 +19,10 @@ class AnalysisPage:
 
         # Calculate stats for each institution
         for institution in institutions:
-            # Fetch entries and stats
-            entries = self.db_manager.get_selected_entries(institution)
-            total_entries += len(entries)
+            # Fetch only selected entries for this institution
+            selected_entries = self.db_manager.get_selected_entries(institution)
+            selected_entries = [entry for entry in selected_entries if entry.get('Selected') == 'Select for Evaluation']
+            total_entries += len(selected_entries)
 
             stats = self.db_manager.get_institution_stats(institution)
             cumulative_summary = stats['cumulative_summary']
@@ -64,49 +65,71 @@ class AnalysisPage:
         st.write(f"Total Evaluations Across All Institutions: {total_evaluations}")
         st.write(f"Total Entries in Database: {total_entries}")
 
-        # Add Search/Jump to Specific Entry
-        st.subheader("Search for Specific Entry by Event Number")
-        event_number_search = st.text_input("Enter Event Number to Search")
-
-        if st.button("Search Entry"):
-            entry_found = None
-            for institution in institutions:
-                entries = self.db_manager.get_selected_entries(institution)
-                entry_found = next((entry for entry in entries if entry.get('Event Number') == event_number_search), None)
-                if entry_found:
-                    break
-
-            if entry_found:
-                st.write(f"Entry Found: Event Number {entry_found.get('Event Number')}")
-                evaluations = entry_found.get('Evaluations', [])
-                if evaluations:
-                    st.write("### Evaluations for this Entry")
-                    for evaluation in evaluations:
-                        st.write(f"Evaluator: {evaluation['Evaluator']}")
-                        st.write(f"Summary Score: {evaluation['Summary Score']}")
-                        st.write(f"Tag Score: {evaluation['Tag Score']}")
-                        st.write(f"Feedback: {evaluation['Feedback']}")
-                        st.markdown("---")
-                else:
-                    st.write("No evaluations found for this entry.")
-            else:
-                st.write("Entry not found.")
-
         # Filter Evaluations by Evaluator
         st.subheader("Filter Evaluations by Evaluator")
-        evaluators = ["Evaluator1", "Evaluator2", "Evaluator3"]  # Add evaluators or fetch from a relevant source
+        # Fetch evaluators from the database
+        evaluators = self.db_manager.get_all_evaluators()
         selected_evaluator = st.selectbox("Select Evaluator", evaluators)
 
         if selected_evaluator:
-            st.write(f"Evaluations by {selected_evaluator}")
+            # Get selected entries evaluated by the evaluator
+            evaluator_entries = []
             for institution in institutions:
-                entries = self.db_manager.get_selected_entries(institution)
-                for entry in entries:
-                    evaluations = entry.get('Evaluations', [])
-                    for evaluation in evaluations:
-                        if evaluation['Evaluator'] == selected_evaluator:
-                            st.write(f"### Entry: {entry.get('Event Number')}")
-                            st.write(f"Summary Score: {evaluation['Summary Score']}")
-                            st.write(f"Tag Score: {evaluation['Tag Score']}")
-                            st.write(f"Feedback: {evaluation['Feedback']}")
-                            st.markdown("---")
+                # Fetch only selected entries for this institution
+                selected_entries = self.db_manager.get_selected_entries(institution)
+                selected_entries = [entry for entry in selected_entries if entry.get('Selected') == 'Select for Evaluation']
+                
+                for entry in selected_entries:
+                    evaluations = self.db_manager.get_evaluations_by_evaluator(selected_evaluator, entry.get('Event Number'))
+                    
+                    if evaluations:
+                        # Evaluated entry
+                        for evaluation in evaluations:
+                            evaluator_entries.append({
+                                'Event Number': entry.get('Event Number'),
+                                'Evaluated': True,
+                                'Summary Score': evaluation['summary_score'],
+                                'Tag Score': evaluation['tag_score'],
+                                'Feedback': evaluation['feedback'],
+                                'Narrative': entry.get('Narrative', ''),
+                                'Assigned Tags': entry.get('Assigned Tags', '')
+                            })
+                    else:
+                        # Non-evaluated entry
+                        evaluator_entries.append({
+                            'Event Number': entry.get('Event Number'),
+                            'Evaluated': False,
+                            'Narrative': entry.get('Narrative', ''),
+                            'Assigned Tags': entry.get('Assigned Tags', '')
+                        })
+
+            # Dropdown list for the entries with check marks or X's
+            entry_display = [
+                f"Entry {i+1} - {entry['Event Number']} {'✅' if entry['Evaluated'] else '❌'}"
+                for i, entry in enumerate(evaluator_entries)
+            ]
+
+            selected_entry_display = st.selectbox("Select an Entry", entry_display)
+            selected_entry_index = int(selected_entry_display.split()[1]) - 1  # Extract index from selected entry
+            selected_entry = evaluator_entries[selected_entry_index]
+
+            # Display selected entry details in a card
+            st.subheader(f"Entry: {selected_entry['Event Number']}")
+
+            # Display Narrative, Tags, Evaluation, and Feedback inside a card-like container
+            st.markdown(
+                """
+                <div style="padding: 15px; background-color: #f9f9f9; border-radius: 8px;">
+                """,
+                unsafe_allow_html=True
+            )
+            st.write(f"**Narrative:** {selected_entry['Narrative']}")
+            st.write(f"**Assigned Tags:** {selected_entry['Assigned Tags']}")
+
+            if selected_entry['Evaluated']:
+                st.write(f"**Summary Score:** {selected_entry['Summary Score']}")
+                st.write(f"**Tag Score:** {selected_entry['Tag Score']}")
+                st.write(f"**Feedback:** {selected_entry['Feedback']}")
+            else:
+                st.write("This entry has not been evaluated yet.")
+            st.markdown("</div>", unsafe_allow_html=True)

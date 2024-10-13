@@ -1,4 +1,6 @@
 import streamlit as st
+import pandas as pd
+import logging
 
 class OverviewPage:
     def __init__(self, db_manager, institution):
@@ -30,6 +32,9 @@ class OverviewPage:
         # Allow the user to jump to a selected entry
         self.render_entry_navigation(filtered_entries, total_filtered_entries)
 
+        # Handle data upload
+        self.render_file_upload()
+
     def render_search_and_filters(self, entries):
         """Render search and filter options for overview."""
         st.markdown("### Search and Filter Selected Entries")
@@ -42,18 +47,22 @@ class OverviewPage:
         st.multiselect("Filter by Assigned Tags", options=sorted(all_tags), key='overview_tag_filter')
 
     def get_filtered_entries(self, entries):
-        """Filter entries based on search and tag criteria."""
+        """Filter entries based on search, tag criteria, and selection status."""
         search_query = st.session_state.get('overview_search_query', '').lower()
         tag_filter = st.session_state.get('overview_tag_filter', [])
 
-        filtered_entries = entries
+        # Filter entries that are selected for evaluation
+        filtered_entries = [
+            entry for entry in entries
+            if entry.get('Selected', 'Do Not Select') == 'Select for Evaluation'
+        ]
 
         # Apply search filter
         if search_query:
             filtered_entries = [
                 entry for entry in filtered_entries
                 if search_query in entry.get('Narrative', '').lower() or
-                   search_query in entry.get('Assigned Tags', '').lower()
+                search_query in entry.get('Assigned Tags', '').lower()
             ]
 
         # Apply tag filter
@@ -85,3 +94,70 @@ class OverviewPage:
         # Summary
         st.markdown(f"**Total Selected Entries:** {total_filtered_entries}")
         st.markdown(f"**Total Entries in Database:** {len(st.session_state['all_entries'])}")
+
+    def reset_session_state():
+        """Reset session state variables."""
+        st.session_state.pop('all_entries', None)
+        st.session_state.pop('total_entries', None)
+        st.session_state.pop('current_index', None)
+
+    def reset_institution_data():
+        selected_institution = st.session_state.get('institution_select', 'UAB')
+        try:
+            st.write(f"Resetting data for institution: {selected_institution}")
+            db_manager.reset_data(selected_institution)  # Reset data in PostgreSQL
+
+            # Ensure session state is cleared after resetting
+            st.session_state.pop('all_entries', None)
+            st.session_state.pop('total_entries', None)
+            st.session_state.pop('current_eval_index', None)
+            st.session_state.pop('evaluator_data', None)  # Add this to clear evaluated data
+            st.success(f"All data for {selected_institution} has been reset.")
+
+        except Exception as e:
+            st.error(f"Error during reset: {e}")
+
+        # Optionally trigger a refresh or rerun if needed
+        st.rerun()
+
+
+
+    def render_file_upload(self):
+        """Handle the file upload process."""
+        st.markdown("### Upload New Data")
+
+        # Add a unique key to avoid duplicate file upload issues
+        uploaded_file = st.file_uploader("Upload New Data", type="xlsx", key='file_upload_overview')
+
+        if uploaded_file:
+            try:
+                # Read the uploaded file into a pandas DataFrame
+                df = pd.read_excel(uploaded_file)
+
+                # Replace NaN values with None (null in JSON)
+                df = df.where(pd.notnull(df), None)
+
+                # Remove 'Selected' column if it exists
+                if 'Selected' in df.columns:
+                    df.drop(columns=['Selected'], inplace=True)
+                    st.write("Removed 'Selected' column from uploaded data.")
+
+                # Convert the DataFrame to a list of dictionaries (entries)
+                new_entries = df.to_dict(orient="records")
+
+                # Ensure that 'Selected' is set to 'Do Not Select' by default
+                for entry in new_entries:
+                    entry['Selected'] = 'Do Not Select'
+
+                # Save entries to the database (PostgreSQL)
+                self.db_manager.save_selected_entries(self.institution, new_entries)
+
+                # Reload the entries into session state
+                all_entries = self.db_manager.get_selected_entries(self.institution)
+                st.session_state['all_entries'] = all_entries
+                st.session_state['total_entries'] = len(all_entries)
+
+                st.success(f"New data for {self.institution} uploaded successfully!")
+            except Exception as e:
+                logging.error(f"Error processing uploaded file: {e}")
+                st.error(f"Error processing uploaded file: {e}")

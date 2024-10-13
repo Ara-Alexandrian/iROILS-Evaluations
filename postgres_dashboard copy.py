@@ -31,10 +31,10 @@ def load_data(query, params=None):
         st.error(f"Error loading data from PostgreSQL: {e}")
         return pd.DataFrame()
 
-# Function to download snapshot as Excel with individual evaluator sheets and an aggregate entry sheet
+# Step 2: Download Data Snapshot Functionality
 def download_snapshot():
     try:
-        # Query to fetch evaluation data for all evaluators
+        # Query to fetch the evaluation data
         eval_query = """
         SELECT 
             ev.evaluator, ev.entry_number, ev.summary_score, ev.tag_score, ev.feedback, 
@@ -46,14 +46,10 @@ def download_snapshot():
         """
         evaluations = load_data(eval_query)
 
-        # Query to fetch distinct evaluators
-        evaluator_query = "SELECT DISTINCT evaluator FROM evaluations;"
-        evaluators = load_data(evaluator_query)['evaluator'].tolist()
-
         # Create an in-memory Excel writer object
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # Write a summary sheet
+            # Write institution summary to the first sheet
             summary_query = """
             SELECT evaluator, COUNT(*) AS total_evaluations, AVG(summary_score) AS avg_summary, AVG(tag_score) AS avg_tag
             FROM evaluations 
@@ -62,26 +58,8 @@ def download_snapshot():
             summary_df = load_data(summary_query)
             summary_df.to_excel(writer, sheet_name='Institution Summary', index=False)
 
-            # Write the aggregate "Evaluations" sheet
-            evaluations_sorted = evaluations.sort_values(by=['evaluator', 'entry_number'])
-            evaluations_sorted.to_excel(writer, sheet_name='Evaluations', index=False)
-
-            # Write a sheet for each evaluator
-            for evaluator in evaluators:
-                evaluator_entries = evaluations_sorted[evaluations_sorted['evaluator'] == evaluator]
-                evaluator_entries.to_excel(writer, sheet_name=evaluator, index=False)
-
-                # Add filters to the evaluator sheet
-                worksheet = writer.sheets[evaluator]
-                for col_num, value in enumerate(evaluator_entries.columns.values):
-                    worksheet.write(0, col_num, value)
-                worksheet.autofilter(0, 0, 0, len(evaluator_entries.columns) - 1)
-
-            # Add filters to the aggregate sheet
-            worksheet = writer.sheets['Evaluations']
-            for col_num, value in enumerate(evaluations_sorted.columns.values):
-                worksheet.write(0, col_num, value)
-            worksheet.autofilter(0, 0, 0, len(evaluations_sorted.columns) - 1)
+            # Write evaluation data to another sheet
+            evaluations.to_excel(writer, sheet_name='Evaluations', index=False)
 
         # Prepare the file for download
         output.seek(0)  # Move the pointer to the beginning of the file
@@ -89,14 +67,15 @@ def download_snapshot():
         st.download_button(
             label="Download Evaluation Data (.xlsx)",
             data=output,
-            file_name="evaluation_data_by_evaluator.xlsx",
+            file_name="evaluation_data_snapshot.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         st.success("Download ready!")
     except Exception as e:
         st.error(f"Failed to download data snapshot: {e}")
 
-# Main Dashboard
+
+# Main Dashboard - Show Running Averages
 st.title("PostgreSQL Evaluation Dashboard")
 
 # Query for Evaluator Data

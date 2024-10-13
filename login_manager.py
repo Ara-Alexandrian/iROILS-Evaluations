@@ -12,14 +12,14 @@ class LoginManager:
 
         # Evaluator credentials mapped to their respective institutions
         self.evaluator_credentials = {
-            'astam': {'password': 'F8bV4nC1', 'institution': 'MBPCC'},
-            'kkirby': {'password': '9xZ7fHk3', 'institution': 'MBPCC'},
+            'astam': {'password': '123', 'institution': 'MBPCC'},
+            'kkirby': {'password': 'resin', 'institution': 'UAB'},
             'dsolis': {'password': 'T2hP6vC4', 'institution': 'MBPCC'},
             'gpitcher': {'password': 'B3kN9wL5', 'institution': 'MBPCC'},
             'jashford': {'password': 'P6vT8mJ2', 'institution': 'MBPCC'},
             'hspears': {'password': 'R4xB2gW9', 'institution': 'MBPCC'},
             'aalexandrian': {'password': '1232', 'institution': 'UAB'},
-            'nviscariello': {'password': 'Y8pK4vH1', 'institution': 'UAB'},
+            'nviscariello': {'password': 'test', 'institution': 'UAB'},
             'rsullivan': {'password': 'C7bM5nW2', 'institution': 'UAB'},
             'jbelliveau': {'password': 'F3rP6yV8', 'institution': 'UAB'},
             'lrobinson': {'password': 'G5tV2cQ9', 'institution': 'UAB'},
