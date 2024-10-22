@@ -41,15 +41,19 @@ def refresh_data():
 # Check if evaluator is logged in
 if not st.session_state.get('evaluator_logged_in', False):
     st.markdown("## Evaluator Login")
-    evaluator_username = st.text_input("Username")
-    evaluator_password = st.text_input("Password", type="password")
 
-    if st.button("Login"):
+    # Wrap the input fields in a form to enable "Enter" key submission
+    with st.form(key='login_form'):
+        evaluator_username = st.text_input("Username")
+        evaluator_password = st.text_input("Password", type="password")
+        submit_button = st.form_submit_button(label="Login")
+
+    # Process form submission
+    if submit_button:
         login_success = login_manager.evaluator_login(st.session_state, evaluator_username, evaluator_password)
         
         if login_success:  # Assuming login_success is a boolean (True/False)
             st.success("Login successful!")
-            # Manually set the institution for now (you can replace this with actual logic)
             evaluator_institution = "UAB"  # Replace with actual institution retrieval logic
             st.session_state['evaluator_username'] = evaluator_username
             st.session_state['evaluator_institution'] = evaluator_institution
@@ -242,7 +246,6 @@ else:
                     st.rerun()
             else:
                 # Only show submit button when not previously evaluated or in re-evaluation mode
-                # Get scores from session state or use default
                 summary_score = st.session_state.get(summary_score_key, 3)
                 tag_score = st.session_state.get(tag_score_key, 3)
                 feedback = st.session_state.get(feedback_key, '')
@@ -255,7 +258,6 @@ else:
                 # Submit button
                 if st.button("Submit Evaluation"):
                     try:
-                        # Save evaluation
                         db_manager.save_evaluation(
                             evaluator_username,
                             current_entry.get('Event Number', ''),
@@ -284,7 +286,6 @@ else:
                     except Exception as e:
                         logger.error(f"Error saving evaluation: {e}")
                         st.error("An error occurred while saving your evaluation. Please try again.")
-
 
 
     # Progress & Statistics Page

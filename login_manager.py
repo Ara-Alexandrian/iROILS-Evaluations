@@ -6,8 +6,8 @@ class LoginManager:
     def __init__(self):
         # Admin credentials
         self.admin_credentials = {
-            'admin_username': '',
-            'admin_password': ''
+            'admin_username': 'iroils',
+            'admin_password': 'iROILS'
         }
 
         # Evaluator credentials mapped to their respective institutions

@@ -50,12 +50,13 @@ st.title("Admin Dashboard")
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
+# Function to reset session state
 def reset_session_state():
-    """Reset session state variables."""
     st.session_state.pop('all_entries', None)
     st.session_state.pop('total_entries', None)
     st.session_state.pop('current_index', None)
 
+# Function to reset institution data
 def reset_institution_data():
     selected_institution = st.session_state.get('institution_select', 'UAB')  # Default to 'UAB' if not set
     try:
@@ -65,47 +66,36 @@ def reset_institution_data():
         # Ensure session state is cleared after resetting
         reset_session_state()
         st.success(f"All data for {selected_institution} has been reset.")
-
     except Exception as e:
         st.error(f"Error during reset: {e}")
 
+# File upload handler
 def render_file_upload():
-    """Handle the file upload process."""
     st.markdown("### Upload New Data")
     uploaded_file = st.file_uploader("Upload New Data", type="xlsx")
 
     if uploaded_file:
         try:
-            # Read the uploaded file into a pandas DataFrame
             df = pd.read_excel(uploaded_file)
-
-            # Replace NaN values with None (null in JSON)
             df = df.where(pd.notnull(df), None)
 
-            # Remove 'Selected' column if it exists
             if 'Selected' in df.columns:
                 df.drop(columns=['Selected'], inplace=True)
                 st.write("Removed 'Selected' column from uploaded data.")
 
-            # Convert the DataFrame to a list of dictionaries (entries)
             new_entries = df.to_dict(orient="records")
-
-            # Ensure that 'Selected' is set to 'Do Not Select' by default
             for entry in new_entries:
                 entry['Selected'] = 'Do Not Select'  # Force 'Do Not Select' for every entry
 
             logging.info(f"Parsed {len(new_entries)} entries from the uploaded file.")
-
-            # Save entries to the database (PostgreSQL)
             db_manager.save_selected_entries(st.session_state['institution_select'], new_entries)
 
-            # Force reload the entries into session state
             all_entries = db_manager.get_selected_entries(st.session_state['institution_select'])
             st.session_state['all_entries'] = all_entries
             st.session_state['total_entries'] = len(all_entries)
 
             st.success(f"New data for {st.session_state['institution_select']} uploaded successfully!")
-            st.rerun()  # Refresh the page so that the new data is displayed immediately
+            st.rerun()  # Refresh the page so the new data is displayed immediately
         except Exception as e:
             logging.error(f"Error processing uploaded file: {e}")
             st.error(f"Error processing uploaded file: {e}")
@@ -115,10 +105,15 @@ def render_file_upload():
 # If the user is not logged in, show the login form
 if not st.session_state['logged_in']:
     st.markdown("## Admin Login")
-    admin_username = st.text_input("Username")
-    admin_password = st.text_input("Password", type="password")
 
-    if st.button("Login"):
+    # Wrap inputs inside a form to enable 'Enter' key submission
+    with st.form(key="admin_login_form"):
+        admin_username = st.text_input("Username")
+        admin_password = st.text_input("Password", type="password")
+        submit_button = st.form_submit_button(label="Login")
+
+    # Process form submission
+    if submit_button:
         if login_manager.login(st.session_state, admin_username, admin_password):
             st.session_state['logged_in'] = True
             st.success("Login successful!")
@@ -137,7 +132,6 @@ else:
         # If the user is logged in and has admin role, display the dashboard
         institution = st.selectbox("Select Institution", ["UAB", "MBPCC"], key='institution_select', on_change=reset_session_state)
 
-        # Pull all entries from PostgreSQL or refresh when institution is changed
         if 'all_entries' not in st.session_state:
             all_entries = db_manager.get_selected_entries(institution)
 
@@ -152,13 +146,10 @@ else:
             all_entries = st.session_state['all_entries']
             st.session_state['total_entries'] = len(all_entries)
 
-        # Choose the mode and display pages
         mode = st.radio("Choose Mode", ["Selection Mode", "Overview Mode", "Analysis Mode"], index=0)
 
         if mode == "Analysis Mode" and st.session_state['total_entries'] > 0:
-            # Perform analysis using analysis_methods.py
             analyzed_entries = evaluate_and_tag_entries(all_entries)
-            # Process analysis and display the results
             analysis_page = AnalysisPage(db_manager)
             analysis_page.show()
 
@@ -170,10 +161,7 @@ else:
             overview_page = OverviewPage(db_manager, institution)
             overview_page.show()
 
-            # **Data Management Options**
             st.markdown("### Data Management")
-            
-            # Add the Upload Button
             render_file_upload()
 
             col1, col2 = st.columns([1, 1])
@@ -186,4 +174,3 @@ else:
                 login_manager.logout(st.session_state)
                 st.session_state['logged_in'] = False
                 st.rerun()
-
