@@ -10,6 +10,10 @@ class OverviewPage:
     def show(self):
         st.header(f"Overview Mode - {self.institution}")
 
+        # Add a reset button to allow resetting data for the institution
+        if st.button("Reset Institution Data"):
+            self.reset_institution_data()
+
         # Use entries from session state
         entries = st.session_state.get('all_entries', [])
         total_entries = len(entries)
@@ -95,32 +99,26 @@ class OverviewPage:
         st.markdown(f"**Total Selected Entries:** {total_filtered_entries}")
         st.markdown(f"**Total Entries in Database:** {len(st.session_state['all_entries'])}")
 
-    def reset_session_state():
-        """Reset session state variables."""
-        st.session_state.pop('all_entries', None)
-        st.session_state.pop('total_entries', None)
-        st.session_state.pop('current_index', None)
-
-    def reset_institution_data():
-        selected_institution = st.session_state.get('institution_select', 'UAB')
+    def reset_institution_data(self):
+        """Reset all entries and evaluations for the institution in the database."""
+        selected_institution = self.institution
         try:
             st.write(f"Resetting data for institution: {selected_institution}")
-            db_manager.reset_data(selected_institution)  # Reset data in PostgreSQL
+            self.db_manager.reset_data(selected_institution)  # Reset data in PostgreSQL
 
-            # Ensure session state is cleared after resetting
+            # Clear session state entries after resetting data
             st.session_state.pop('all_entries', None)
             st.session_state.pop('total_entries', None)
             st.session_state.pop('current_eval_index', None)
-            st.session_state.pop('evaluator_data', None)  # Add this to clear evaluated data
+            st.session_state.pop('evaluator_data', None)  # Clear any evaluated data from session
+
             st.success(f"All data for {selected_institution} has been reset.")
 
         except Exception as e:
             st.error(f"Error during reset: {e}")
 
-        # Optionally trigger a refresh or rerun if needed
+        # Trigger a rerun to refresh the page
         st.rerun()
-
-
 
     def render_file_upload(self):
         """Handle the file upload process."""

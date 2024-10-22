@@ -30,6 +30,14 @@ db_manager = DatabaseManager(
 )
 login_manager = LoginManager()
 
+# Function to refresh data (clearing session state and reloading entries)
+def refresh_data():
+    st.session_state.pop('assigned_entries', None)
+    st.session_state.pop('total_assigned_entries', None)
+    st.session_state.pop('current_eval_index', None)
+    st.session_state.pop('re_evaluating', None)
+    st.rerun()
+
 # Check if evaluator is logged in
 if not st.session_state.get('evaluator_logged_in', False):
     st.markdown("## Evaluator Login")
@@ -47,7 +55,7 @@ if not st.session_state.get('evaluator_logged_in', False):
             st.session_state['evaluator_institution'] = evaluator_institution
             st.session_state['evaluator_logged_in'] = True
             st.session_state['current_eval_index'] = 0
-            st.rerun()  # Rerun after successful login
+            refresh_data()  # Automatically refresh data after login
         else:
             st.error("Invalid username or password")
 else:
@@ -140,11 +148,7 @@ else:
 
     # Refresh Data Button
     if st.button("Refresh Data"):
-        st.session_state.pop('assigned_entries', None)
-        st.session_state.pop('total_assigned_entries', None)
-        st.session_state.pop('current_eval_index', None)
-        st.session_state.pop('re_evaluating', None)
-        st.rerun()
+        refresh_data()
 
     # Page navigation
     page_selection = st.radio("Choose Page", ["Evaluation Submission", "Progress & Statistics"])

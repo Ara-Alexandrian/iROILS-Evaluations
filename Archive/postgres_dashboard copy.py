@@ -74,7 +74,6 @@ def download_snapshot():
     except Exception as e:
         st.error(f"Failed to download data snapshot: {e}")
 
-
 # Main Dashboard - Show Running Averages
 st.title("PostgreSQL Evaluation Dashboard")
 
@@ -154,3 +153,30 @@ if selected_evaluator:
 # Button to download data snapshot
 st.header("Download Data Snapshot")
 download_snapshot()
+
+# Section for Individual Evaluator Feedbacks & Scores
+st.title("Individual Scores and Feedbacks")
+
+evaluator_scores_query = """
+SELECT 
+    evaluator, entry_number, summary_score, tag_score, feedback
+FROM evaluations
+ORDER BY evaluator, entry_number;
+"""
+evaluator_scores = load_data(evaluator_scores_query)
+
+if not evaluator_scores.empty:
+    st.write("### Individual Scores and Feedback by Evaluator")
+    
+    for evaluator in evaluator_scores['evaluator'].unique():
+        st.subheader(f"Evaluator: {evaluator}")
+        evaluator_data = evaluator_scores[evaluator_scores['evaluator'] == evaluator]
+
+        for idx, row in evaluator_data.iterrows():
+            st.markdown(f"**Entry {row['entry_number']}**")
+            st.write(f"Summary Score: {row['summary_score']}")
+            st.write(f"Tag Score: {row['tag_score']}")
+            st.write(f"Feedback: {row['feedback']}")
+            st.markdown("---")
+else:
+    st.write("No evaluator feedback data available.")
