@@ -22,7 +22,7 @@ class LoginManager:
             'nviscariello': {'password': 'L8kY5nJ3', 'institution': 'UAB'},
             'rsullivan': {'password': 'C7bM5nW2', 'institution': 'UAB'},
             'jbelliveau': {'password': 'F3rP6yV8', 'institution': 'UAB'},
-            'lrobinson': {'password': 'G5tV2cQ9', 'institution': 'UAB'},
+            'apdalton': {'password': 'G5tV2cQ9', 'institution': 'UAB'},
         }
 
         # Session timeout threshold in seconds (e.g., 15 minutes)
