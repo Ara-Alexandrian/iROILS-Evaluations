@@ -1,46 +1,36 @@
+# app/app.py
+
 import streamlit as st
-import configparser
 import logging
-import pandas as pd
-from database_manager import DatabaseManager
-from network_resolver import NetworkResolver
-from login_manager import LoginManager
-from selection_page import SelectionPage
-from overview_page import OverviewPage
-from analysis_page import AnalysisPage
-from analysis_methods import evaluate_and_tag_entries  # Import evaluation methods
+from config.config_manager import ConfigManager
+from utils.database_manager import DatabaseManager
+from utils.network_resolver import NetworkResolver
+from utils.login_manager import LoginManager
+from pages.selection_page import SelectionPage
+from pages.overview_page import OverviewPage
+from pages.analysis_page import AnalysisPage
 
-# Set up logging for debugging
+# Set up logging
 logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
 
-# Load the configuration file
-config = configparser.ConfigParser()
-config.read('config.ini')
+# Initialize configuration
+config_manager = ConfigManager()
+resolver = NetworkResolver(config_manager)
 
-# Initialize the NetworkResolver
-resolver = NetworkResolver(config)
-
-# Determine the environment using the NetworkResolver
+# Determine environment and get configuration
 local_ip = resolver.get_local_ip()
 environment = resolver.resolve_environment(local_ip)
+pg_config = config_manager.get_postgresql_config(environment)
 
-# Extract PostgreSQL credentials based on the environment
-psql_host = config['postgresql'][f'psql_{environment}']  # Use 'psql_home' or 'psql_work'
-psql_port = config['postgresql'].getint('psql_port', 5432)
-psql_user = config['postgresql']['psql_user']
-psql_password = config['postgresql']['psql_password']
-psql_dbname = config['postgresql']['psql_dbname']
-
-# Initialize the DatabaseManager with the resolved credentials
+# Initialize managers
 db_manager = DatabaseManager(
-    psql_host=psql_host,
-    psql_port=psql_port,
-    psql_user=psql_user,
-    psql_password=psql_password,
-    psql_dbname=psql_dbname
+  psql_host=pg_config['host'],
+  psql_port=pg_config['port'],
+  psql_user=pg_config['user'],
+  psql_password=pg_config['password'],
+  psql_dbname=pg_config['dbname']
 )
-
-# Initialize the LoginManager
 login_manager = LoginManager()
 
 # Streamlit UI
