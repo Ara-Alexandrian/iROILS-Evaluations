@@ -4,31 +4,19 @@ from sqlalchemy import create_engine
 from io import BytesIO
 import configparser
 import os
+import sys
 
-# Get the directory containing the script
-script_dir = os.path.dirname(os.path.abspath(__file__))
-# Construct path to config.ini
-config_path = os.path.join(script_dir, 'config.ini')
+# Add the parent directory to the Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Load configuration
-config = configparser.ConfigParser()
-if not config.read(config_path):
-  st.error(f"Could not read configuration file at {config_path}")
-  st.stop()
+from config.config_manager import ConfigManager
 
-# PostgreSQL connection settings
-try:
-  psql_host = config['postgresql']['psql_home']
-  psql_port = config['postgresql'].getint('psql_port', 5432)
-  psql_user = config['postgresql']['psql_user']
-  psql_password = config['postgresql']['psql_password']
-  psql_dbname = config['postgresql']['psql_dbname']
-except KeyError as e:
-  st.error(f"Missing configuration key: {e}")
-  st.stop()
+# Initialize configuration
+config_manager = ConfigManager()
+pg_config = config_manager.get_postgresql_config('home')
 
 # Create a connection string for SQLAlchemy
-connection_string = f"postgresql://{psql_user}:{psql_password}@{psql_host}:{psql_port}/{psql_dbname}"
+connection_string = f"postgresql://{pg_config['user']}:{pg_config['password']}@{pg_config['host']}:{pg_config['port']}/{pg_config['dbname']}"
 
 # Establish SQLAlchemy engine
 try:
@@ -36,6 +24,8 @@ try:
 except Exception as e:
   st.error(f"Failed to create database engine: {e}")
   st.stop()
+
+# Rest of the postgres_dashboard.py code remains the same...
 
 # Ensure cache is refreshed when needed
 @st.cache_data(show_spinner=False, ttl=60)
