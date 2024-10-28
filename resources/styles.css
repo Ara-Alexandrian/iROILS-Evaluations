@@ -1,29 +1,74 @@
 /* resources/styles.css */
 
+/* Default Styles for Login Page */
 body, .stApp {
-    background: linear-gradient(to bottom, #111111, #440000);
-    color: #f2f2f2;
+    background: #111111; /* Dark background for login */
+    color: #f2f2f2; /* Light text color */
 }
+
 h1, h2, h3, h4, h5, h6 {
     font-family: 'Segoe UI', sans-serif;
 }
+
 .stProgress > div > div > div > div {
-    background-color: #ff6666;
+    background-color: #666666; /* Neutral progress bar color */
 }
-.stTextArea, .stSlider, .stButton>button, .stRadio>div {
-    box-shadow: 0px 4px 6px rgba(0,0,0,0.2);
+
+.stTextArea, .stSlider, .stButton > button, .stRadio > div {
+    box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.2);
     border-radius: 5px;
-    margin: 10px 0px;
+    margin: 10px 0;
 }
-.stButton>button:hover {
-    background-color: #ff4d4d;
+
+.stButton > button:hover {
+    background-color: #444444; /* Neutral hover color */
 }
+
 .stMarkdown, .stTextArea, .stSlider {
     padding: 10px;
     border-radius: 8px;
     background-color: rgba(255, 255, 255, 0.1);
 }
+
 h1 {
     text-align: center;
     margin-top: 10px;
+}
+
+/* UAB Institution Styles */
+.uab {
+    background: linear-gradient(to bottom, #003300, #0d1b0e); /* UAB Green gradient */
+    color: #e6e6e6; /* Light text color */
+}
+
+.uab h1, .uab h2, .uab h3, .uab h4, .uab h5, .uab h6 {
+    color: #ffcc00; /* Gold color for text */
+}
+
+.uab .stButton > button {
+    background-color: #ffcc00; /* Gold button */
+    color: #003300; /* Green text */
+}
+
+.uab .stProgress > div > div > div > div {
+    background-color: #ffcc00; /* Gold progress bar */
+}
+
+/* MBPCC Institution Styles */
+.mbpcc {
+    background: linear-gradient(to bottom, #800000, #1a1a1a); /* MBPCC Red gradient */
+    color: #f2f2f2; /* Light text color */
+}
+
+.mbpcc h1, .mbpcc h2, .mbpcc h3, .mbpcc h4, .mbpcc h5, .mbpcc h6 {
+    color: #ff4d4d; /* Red color for text */
+}
+
+.mbpcc .stButton > button {
+    background-color: #ff1a1a; /* Bright red button */
+    color: #000000; /* Black text */
+}
+
+.mbpcc .stProgress > div > div > div > div {
+    background-color: #ff4d4d; /* Red progress bar */
 }

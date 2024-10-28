@@ -5,6 +5,7 @@ from utils.database_manager import DatabaseManager
 from utils.network_resolver import NetworkResolver
 from utils.login_manager import LoginManager
 
+
 # Set up logging for debugging
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ else:
   evaluator_username = st.session_state['evaluator_username']
   evaluator_institution = st.session_state['evaluator_institution']
 
-  # Global styles
+  # Global and institution-specific styles
   global_style = """
   <style>
       body, .stApp {
@@ -76,52 +77,68 @@ else:
       .stProgress > div > div > div > div {
           background-color: #ff6666;
       }
+      .stTextArea, .stSlider, .stButton>button, .stRadio>div {
+          box-shadow: 0px 4px 6px rgba(0,0,0,0.2);
+          border-radius: 5px;
+          margin: 10px 0px;
+      }
+      .stButton>button:hover {
+          background-color: #ff4d4d;
+      }
+      .stMarkdown, .stTextArea, .stSlider {
+          padding: 10px;
+          border-radius: 8px;
+          background-color: rgba(255, 255, 255, 0.1);
+      }
+      h1 {
+          text-align: center;
+          margin-top: 10px;
+      }
   </style>
   """
-  
-  # Institution-specific styles
-  if evaluator_institution.lower() == 'uab':
-      institution_style = """
-      <style>
-          body, .stApp {
-              background: linear-gradient(to bottom, #0d1b0e, #003300);
-              color: #e6e6e6;
-          }
-          h1, h2, h3, h4, h5, h6 {
-              color: #ffcc00;
-          }
-          .stButton>button {
-              background-color: #ffcc00;
-              color: #003300;
-          }
-          .stProgress > div > div > div > div {
-              background-color: #ffcc00;
-          }
-      </style>
-      """
-  elif evaluator_institution.lower() == 'mbpcc':
-      institution_style = """
-      <style>
-          body, .stApp {
-              background: linear-gradient(to bottom, #1a1a1a, #800000);
-              color: #f2f2f2;
-          }
-          h1, h2, h3, h4, h5, h6 {
-              color: #ff4d4d;
-          }
-          .stButton>button {
-              background-color: #ff1a1a;
-              color: #000000;
-          }
-          .stProgress > div > div > div > div {
-              background-color: #ff4d4d;
-          }
-      </style>
-      """
+  uab_style = """
+  <style>
+      body, .stApp {
+          background: linear-gradient(to bottom, #0d1b0e, #003300);
+          color: #e6e6e6;
+      }
+      h1, h2, h3, h4, h5, h6 {
+          color: #ffcc00;
+      }
+      .stButton>button {
+          background-color: #ffcc00;
+          color: #003300;
+      }
+      .stProgress > div > div > div > div {
+          background-color: #ffcc00;
+      }
+  </style>
+  """
+  mbpcc_style = """
+  <style>
+      body, .stApp {
+          background: linear-gradient(to bottom, #1a1a1a, #800000);
+          color: #f2f2f2;
+      }
+      h1, h2, h3, h4, h5, h6 {
+          color: #ff4d4d;
+      }
+      .stButton>button {
+          background-color: #ff1a1a;
+          color: #000000;
+      }
+      .stProgress > div > div > div > div {
+          background-color: #ff4d4d;
+      }
+  </style>
+  """
 
   # Apply the global and institution-specific styling
   st.markdown(global_style, unsafe_allow_html=True)
-  st.markdown(institution_style, unsafe_allow_html=True)
+  if evaluator_institution.lower() == 'uab':
+      st.markdown(uab_style, unsafe_allow_html=True)
+  elif evaluator_institution.lower() == 'mbpcc':
+      st.markdown(mbpcc_style, unsafe_allow_html=True)
 
   # Logo and title
   logo_path = f"resources/{evaluator_institution.upper()}.png"
@@ -140,7 +157,7 @@ else:
   if page_selection == "Evaluation Submission":
       st.markdown(f"### Welcome, {evaluator_username}!")
 
-      # Load assigned entries from session state after refreshing
+      # Only refresh assigned entries once when the user first enters the page
       if 'assigned_entries' not in st.session_state:
           assigned_entries = db_manager.get_selected_entries(evaluator_institution)
           assigned_entries = [entry for entry in assigned_entries if entry.get('Selected') == 'Select for Evaluation']
@@ -149,6 +166,7 @@ else:
           st.session_state['first_unrated'] = True
           st.rerun()
 
+      # Load assigned entries from session state after refreshing
       assigned_entries = st.session_state.get('assigned_entries', [])
       total_assigned_entries = len(assigned_entries)
       st.session_state['total_assigned_entries'] = total_assigned_entries
@@ -156,6 +174,15 @@ else:
       if total_assigned_entries == 0:
           st.write("No entries assigned for evaluation.")
       else:
+          # Navigate to first un-evaluated entry upon login
+          if 'first_unrated' not in st.session_state:
+              for i, entry in enumerate(assigned_entries):
+                  event_number = entry.get('Event Number', '')
+                  if not db_manager.get_evaluation(evaluator_username, event_number, evaluator_institution):
+                      st.session_state['current_eval_index'] = i
+                      break
+              st.session_state['first_unrated'] = True
+
           # Ensure index is within bounds
           current_eval_index = st.session_state.get('current_eval_index', 0)
           if current_eval_index >= total_assigned_entries:
@@ -257,7 +284,7 @@ else:
                       logger.error(f"Error saving evaluation: {e}")
                       st.error("An error occurred while saving your evaluation. Please try again.")
 
-  # Progress & Statistics Section
+  # Progress & Statistics Page
   elif page_selection == "Progress & Statistics":
       st.markdown(f"### Progress for {evaluator_username}")
 
