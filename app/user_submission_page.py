@@ -2,7 +2,9 @@ import streamlit as st
 import logging
 from config.config_manager import ConfigManager
 from utils.database_manager import DatabaseManager
+from utils.network_resolver import NetworkResolver
 from utils.login_manager import LoginManager
+
 
 # Set up logging for debugging
 logging.basicConfig(level=logging.WARNING)

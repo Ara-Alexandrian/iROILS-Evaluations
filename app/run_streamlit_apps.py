@@ -12,9 +12,9 @@ def main():
     
     # Define the Streamlit apps and their ports
     apps = [
-        ("/config/github/iROILS-Evaluations/app/app.py", 8501),
-        ("/config/github/iROILS-Evaluations/app/pages/user_submission.py", 8502),
-        ("/config/github/iROILS-Evaluations/app/pages/postgres_dashboard.py", 8503)
+        ("/config/github/iROILS-Evaluations/app/admin_page.py", 8501),
+        ("/config/github/iROILS-Evaluations/app/user_submission_page.py", 8502),
+        ("/config/github/iROILS-Evaluations/app/postgres_dashboard_page.py", 8503)
     ]
     
     processes = []
