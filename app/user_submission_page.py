@@ -1,6 +1,7 @@
 import os
 import streamlit as st
 import logging
+import time
 from config.config_manager import ConfigManager
 from utils.database_manager import DatabaseManager
 from utils.network_resolver import NetworkResolver
@@ -388,6 +389,17 @@ if st.session_state.get('evaluator_logged_in', False):
 
     # Logout Button
     if st.button("Logout"):
+        # Clear session state variables
         login_manager.logout(st.session_state)
         st.session_state['evaluator_logged_in'] = False
-        rerun_needed = True
+        st.session_state['evaluator_username'] = None
+        st.session_state['evaluator_institution'] = None
+        st.session_state['current_eval_index'] = None
+        st.session_state.clear()  # Optionally clear all session state data
+        
+        # Instead of rerunning immediately, show a success message to confirm logout
+        st.success("You have been logged out. Please log in again.")
+        time.sleep(2)
+        # Optionally, you can redirect back to login after a short delay
+        st.rerun()
+
