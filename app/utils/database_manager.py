@@ -211,15 +211,16 @@ class DatabaseManager:
             raise e
 
     def get_evaluation(self, evaluator, entry_number, institution):
-        # Ensure the query matches both the evaluator, entry number, and institution
         try:
             institution_clean = institution.strip().lower()
+            # Convert entry_number to string before passing it to the query
+            entry_number_str = str(entry_number)
             with self.connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT *
                     FROM evaluations
                     WHERE evaluator = %s AND entry_number = %s AND LOWER(TRIM(institution)) = %s;
-                """, (evaluator, entry_number, institution_clean))
+                """, (evaluator, entry_number_str, institution_clean))
                 result = cursor.fetchone()
                 if result:
                     return dict(result)  # return evaluation if found
@@ -228,6 +229,7 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Error fetching evaluation for evaluator {evaluator}, entry {entry_number}: {e}")
             return None
+
 
 
     def save_evaluation(self, evaluator, entry_number, institution, summary_score, tag_score, feedback):

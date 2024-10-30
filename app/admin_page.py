@@ -2,6 +2,7 @@
 
 import streamlit as st
 import logging
+import pandas as pd
 from config.config_manager import ConfigManager
 from utils.database_manager import DatabaseManager
 from utils.network_resolver import NetworkResolver
