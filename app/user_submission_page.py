@@ -230,7 +230,7 @@ if st.session_state.get('evaluator_logged_in', False):
         rerun_needed = True
 
     # Page navigation
-    page_selection = st.radio("Choose Page", ["Evaluation Submission", "Progress & Statistics"])
+    page_selection = st.radio("Choose Page", ["Evaluation Submission", "Progress"])
 
     if page_selection == "Evaluation Submission":
         st.markdown(f"### Welcome, {evaluator_username}!")
@@ -326,9 +326,12 @@ if st.session_state.get('evaluator_logged_in', False):
                 tag_score = st.slider("Rate the Assigned Tags (1-5)", min_value=1, max_value=5, value=tag_score, key=tag_score_key)
                 feedback = st.text_area("Feedback", value=feedback, key=feedback_key)
 
+
+
                 # Submit button
                 if st.button("Submit Evaluation"):
                     try:
+                        # Save the evaluation
                         db_manager.save_evaluation(
                             evaluator_username,
                             current_entry.get('Event Number', ''),
@@ -347,45 +350,63 @@ if st.session_state.get('evaluator_logged_in', False):
 
                         # Automatically move to the next entry
                         if st.session_state.get('current_eval_index', 0) < st.session_state['total_assigned_entries'] - 1:
+                            # Wait for 1 second before progressing
+                            time.sleep(1)
                             st.session_state['current_eval_index'] += 1
                         else:
                             st.success("You have completed all assigned evaluations.")
 
+                        # Set flag to trigger rerun
                         rerun_needed = True
 
                     except Exception as e:
                         logger.error(f"Error saving evaluation: {e}")
                         st.error("An error occurred while saving your evaluation. Please try again.")
 
-    # Progress & Statistics Page
-    elif page_selection == "Progress & Statistics":
+                # Trigger rerun if needed
+                if rerun_needed:
+                    st.rerun()
+
+
+    # Progress Page
+    elif page_selection == "Progress":
         st.markdown(f"### Progress for {evaluator_username}")
 
+        # Check if assigned entries are already in session state
         if 'assigned_entries' not in st.session_state:
             assigned_entries = db_manager.get_selected_entries(evaluator_institution)
             st.session_state['assigned_entries'] = [entry for entry in assigned_entries if entry.get('Selected') == 'Select for Evaluation']
 
-        # Count completed evaluations
+        # Fetch assigned entries from session state
+        assigned_entries = st.session_state['assigned_entries']
+        total_assigned_entries = len(assigned_entries)
+
+        # Fetch user stats for the evaluator
         completed_evaluations = db_manager.count_evaluations_by_evaluator(evaluator_username, evaluator_institution)
-        total_assigned_entries = len(st.session_state['assigned_entries'])
         completion_percentage = (completed_evaluations / total_assigned_entries) * 100 if total_assigned_entries > 0 else 0
 
+        # Display the statistics
         st.write(f"Entries Assigned: {total_assigned_entries}")
         st.write(f"Evaluations Completed: {completed_evaluations} ({completion_percentage:.2f}%)")
         st.progress(completion_percentage / 100)
 
-        st.markdown("### Jump to an Entry")
-        entry_selection = st.selectbox(
-            "Select an Entry to Jump To",
-            [f"Entry {i+1} - {entry.get('Event Number', 'N/A')} {'✅' if db_manager.get_evaluation(evaluator_username, entry.get('Event Number', ''), evaluator_institution) else '❌'}"
-             for i, entry in enumerate(st.session_state['assigned_entries'])],
-            index=st.session_state.get('current_eval_index', 0)
-        )
+        if total_assigned_entries > 0:
+            # Jump to an entry
+            st.markdown("### Jump to an Entry")
+            entry_selection = st.selectbox(
+                "Select an Entry to Jump To",
+                [f"Entry {i+1} - {entry.get('Event Number', 'N/A')} {'✅' if db_manager.get_evaluation(evaluator_username, entry.get('Event Number', ''), evaluator_institution) else '❌'}"
+                 for i, entry in enumerate(assigned_entries)],
+                index=st.session_state.get('current_eval_index', 0)
+            )
 
-        # Extract selected entry index
-        selected_entry_index = int(entry_selection.split()[1]) - 1
-        st.session_state['current_eval_index'] = selected_entry_index
-        rerun_needed = True
+            # Extract selected entry index
+            selected_entry_index = int(entry_selection.split()[1]) - 1
+            st.session_state['current_eval_index'] = selected_entry_index
+            rerun_needed = True
+        else:
+            st.write("No entries available to jump to.")
+
 
     # Logout Button
     if st.button("Logout"):
@@ -402,4 +423,3 @@ if st.session_state.get('evaluator_logged_in', False):
         time.sleep(2)
         # Optionally, you can redirect back to login after a short delay
         st.rerun()
-
