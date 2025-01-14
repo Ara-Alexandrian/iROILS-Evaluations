@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine
 from io import BytesIO
-import configparser
 import os
 import sys
 
@@ -10,10 +9,16 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.config_manager import ConfigManager
+from utils.network_resolver import NetworkResolver
 
-# Initialize configuration
+# Initialize configuration and network resolver
 config_manager = ConfigManager()
-pg_config = config_manager.get_postgresql_config('home')
+resolver = NetworkResolver(config_manager)
+
+# Determine environment and get configuration
+local_ip = resolver.get_local_ip()
+environment = resolver.resolve_environment(local_ip)
+pg_config = config_manager.get_postgresql_config(environment)
 
 # Create a connection string for SQLAlchemy
 connection_string = f"postgresql://{pg_config['user']}:{pg_config['password']}@{pg_config['host']}:{pg_config['port']}/{pg_config['dbname']}"
@@ -24,8 +29,6 @@ try:
 except Exception as e:
   st.error(f"Failed to create database engine: {e}")
   st.stop()
-
-# Rest of the postgres_dashboard.py code remains the same...
 
 # Ensure cache is refreshed when needed
 @st.cache_data(show_spinner=False, ttl=60)

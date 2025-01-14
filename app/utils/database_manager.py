@@ -211,15 +211,16 @@ class DatabaseManager:
             raise e
 
     def get_evaluation(self, evaluator, entry_number, institution):
-        # Ensure the query matches both the evaluator, entry number, and institution
         try:
             institution_clean = institution.strip().lower()
+            # Convert entry_number to string before passing it to the query
+            entry_number_str = str(entry_number)
             with self.connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT *
                     FROM evaluations
                     WHERE evaluator = %s AND entry_number = %s AND LOWER(TRIM(institution)) = %s;
-                """, (evaluator, entry_number, institution_clean))
+                """, (evaluator, entry_number_str, institution_clean))
                 result = cursor.fetchone()
                 if result:
                     return dict(result)  # return evaluation if found
@@ -228,6 +229,7 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Error fetching evaluation for evaluator {evaluator}, entry {entry_number}: {e}")
             return None
+
 
 
     def save_evaluation(self, evaluator, entry_number, institution, summary_score, tag_score, feedback):
@@ -406,21 +408,23 @@ class DatabaseManager:
                 cursor.execute(query, (evaluator_username, institution))
                 result = cursor.fetchone()
                 if result:
+                    # Handle None results with defaults
                     return {
                         'total_evaluations': result[0],
-                        'average_summary_score': result[1],
-                        'average_tag_score': result[2]
+                        'average_summary_score': result[1] if result[1] is not None else 0.0,
+                        'average_tag_score': result[2] if result[2] is not None else 0.0
                     }
                 else:
                     return {
                         'total_evaluations': 0,
-                        'average_summary_score': 0,
-                        'average_tag_score': 0
+                        'average_summary_score': 0.0,
+                        'average_tag_score': 0.0
                     }
         except Exception as e:
             self.logger.error(f"Error fetching user stats for {evaluator_username}: {e}")
             return {
                 'total_evaluations': 0,
-                'average_summary_score': 0,
-                'average_tag_score': 0
+                'average_summary_score': 0.0,
+                'average_tag_score': 0.0
             }
+
