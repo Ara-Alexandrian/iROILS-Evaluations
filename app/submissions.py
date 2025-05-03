@@ -1,8 +1,7 @@
 """
-Main entry point for the iROILS Evaluations application.
+Evaluator submission page for the iROILS Evaluations application.
 
-This module initializes the application components and provides
-the entry point for the Streamlit application.
+This module provides the entry point for the evaluator submission interface.
 """
 
 import logging
@@ -16,6 +15,7 @@ from app.config import config
 from app.services.auth_service import AuthService
 from app.services.database_service import DatabaseService
 from app.utils.network_utils import NetworkResolver
+from app.pages.submission_page import SubmissionPage
 
 # Initialize application services
 def setup_app():
@@ -36,7 +36,7 @@ def setup_app():
         filename=logging_config['file'] if logging_config['file'] else None
     )
     logger = logging.getLogger(__name__)
-    logger.info("Initializing iROILS Evaluations Application")
+    logger.info("Initializing iROILS Evaluations Application - Submission Interface")
     
     try:
         # Initialize network resolver
@@ -78,8 +78,8 @@ def main():
     """Main application entry point."""
     # Set page configuration
     st.set_page_config(
-        page_title="iROILS Evaluations",
-        page_icon="📊",
+        page_title="iROILS Evaluator Dashboard",
+        page_icon="📋",
         layout="wide",
         initial_sidebar_state="expanded"
     )
@@ -102,13 +102,12 @@ def main():
     # Get services
     services = st.session_state['services']
     
-    # Import and render the admin page
-    from app.pages.admin_page import AdminPage
-    admin_page = AdminPage(
+    # Import and render the submission page
+    submission_page = SubmissionPage(
         auth_service=services['auth_service'],
         db_service=services['db_service']
     )
-    admin_page.render()
+    submission_page.render()
 
 if __name__ == "__main__":
     main()

@@ -17,17 +17,17 @@ from typing import List, Dict, Any
 APP_PAGES = [
     {
         'name': 'Admin Dashboard',
-        'page': 'admin',
+        'script': os.path.join(os.path.dirname(__file__), 'app', 'main.py'),
         'port': 8501
     },
     {
         'name': 'Evaluator Dashboard',
-        'page': 'submission',
+        'script': os.path.join(os.path.dirname(__file__), 'app', 'submissions.py'),
         'port': 8502
     },
     {
         'name': 'Database Dashboard',
-        'page': 'dashboard',
+        'script': os.path.join(os.path.dirname(__file__), 'app', 'dashboard.py'),
         'port': 8503
     }
 ]
@@ -50,25 +50,24 @@ def setup_logging() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-def start_app(page: str, port: int) -> subprocess.Popen:
+def start_app(script_path: str, port: int) -> subprocess.Popen:
     """
     Start a Streamlit app process.
     
     Args:
-        page (str): Page to run
+        script_path (str): Path to the script to run
         port (int): Port to run on
         
     Returns:
         subprocess.Popen: Process object
     """
     python_executable = sys.executable
-    script_path = os.path.join(os.path.dirname(__file__), 'app', 'main.py')
     
     # Construct command
     cmd = [
         python_executable,
         '-m', 'streamlit', 'run', script_path,
-        '--', '--page', page, '--port', str(port)
+        '--server.port', str(port)
     ]
     
     # Start process
@@ -93,7 +92,7 @@ def start_all_apps(logger: logging.Logger) -> None:
     
     for app in APP_PAGES:
         logger.info(f"Starting {app['name']} on port {app['port']}")
-        process = start_app(app['page'], app['port'])
+        process = start_app(app['script'], app['port'])
         processes.append(process)
         logger.info(f"{app['name']} started with PID {process.pid}")
 
@@ -153,8 +152,10 @@ def main() -> None:
         # Start all application components
         start_all_apps(logger)
         
-        # Wait for all processes to complete (though they should run indefinitely)
-        logger.info("All applications started successfully")
+        # Print information
+        logger.info("All applications started successfully:")
+        for app in APP_PAGES:
+            logger.info(f"- {app['name']}: http://localhost:{app['port']}")
         logger.info("Press Ctrl+C to exit")
         
         # Keep main process running
