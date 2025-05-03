@@ -84,6 +84,15 @@ def main():
         initial_sidebar_state="expanded"
     )
     
+    # Hide default pages from sidebar
+    hide_pages = """
+    <style>
+    div[data-testid="collapsedControl"] {display: none}
+    section[data-testid="stSidebar"] {display: none}
+    </style>
+    """
+    st.markdown(hide_pages, unsafe_allow_html=True)
+    
     # Apply custom CSS
     css_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'styles.css')
     if os.path.exists(css_path):
