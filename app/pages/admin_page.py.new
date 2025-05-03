@@ -1,0 +1,210 @@
+"""
+Admin dashboard page for the iROILS Evaluations application.
+
+This module provides the admin dashboard interface for managing
+institutions, data, and accessing various application features.
+"""
+
+import logging
+import pandas as pd
+from typing import Dict, List, Any, Optional
+
+import streamlit as st
+
+from app.pages import SecurePage
+from app.services.auth_service import AuthService
+from app.services.database_service import DatabaseService
+from app.core.session import SessionState
+from app.models.entry import Entry
+
+
+class AdminPage(SecurePage):
+    """
+    Admin dashboard page component.
+    
+    This page provides administrative functionality for managing
+    institutions, data, and accessing various application features.
+    """
+    
+    def __init__(self, auth_service: AuthService, db_service: DatabaseService):
+        """
+        Initialize the admin page.
+        
+        Args:
+            auth_service (AuthService): The authentication service
+            db_service (DatabaseService): The database service
+        """
+        super().__init__("Admin Dashboard", auth_service, required_role='admin')
+        self.db_service = db_service
+        self.logger = logging.getLogger(__name__)
+    
+    def _render_content(self) -> None:
+        """
+        Render the admin dashboard content.
+        """
+        # Institution selection
+        institution = st.selectbox(
+            "Select Institution", 
+            ["UAB", "MBPCC"], 
+            key='institution_select',
+            on_change=self._reset_session_state
+        )
+        
+        # Load entries if not already loaded
+        if not self.session.has('all_entries'):
+            try:
+                all_entries = self.db_service.get_entries(institution)
+                
+                if not all_entries:
+                    self.session.set('all_entries', [])
+                    self.session.set('total_entries', 0)
+                    st.warning("No data available for the selected institution.")
+                else:
+                    self.session.set('all_entries', all_entries)
+                    self.session.set('total_entries', len(all_entries))
+            except Exception as e:
+                st.error(f"Error loading entries: {e}")
+                return
+        
+        # Mode selection
+        mode = st.radio("Choose Mode", ["Selection Mode", "Overview Mode", "Analysis Mode"], index=0)
+        
+        # Render appropriate content based on mode
+        if mode == "Analysis Mode" and self.session.get('total_entries', 0) > 0:
+            self._render_analysis_mode(institution)
+        elif mode == "Selection Mode" and self.session.get('total_entries', 0) > 0:
+            self._render_selection_mode(institution)
+        elif mode == "Overview Mode":
+            self._render_overview_mode(institution)
+    
+    def _render_analysis_mode(self, institution: str) -> None:
+        """
+        Render analysis mode content.
+        
+        Args:
+            institution (str): The selected institution
+        """
+        st.markdown("## Analysis Mode")
+        
+        # Import analysis page component
+        from app.pages.analysis_page import AnalysisPage
+        
+        # Create and render the analysis page
+        analysis_page = AnalysisPage(self.db_service, institution)
+        analysis_page._render_content()  # Direct call to avoid title duplication
+    
+    def _render_selection_mode(self, institution: str) -> None:
+        """
+        Render selection mode content.
+        
+        Args:
+            institution (str): The selected institution
+        """
+        st.markdown("## Selection Mode")
+        
+        # Import selection page component
+        from app.pages.selection_page import SelectionPage
+        
+        # Create and render the selection page
+        selection_page = SelectionPage(self.db_service, institution)
+        selection_page._render_content()  # Direct call to avoid title duplication
+    
+    def _render_overview_mode(self, institution: str) -> None:
+        """
+        Render overview mode content.
+        
+        Args:
+            institution (str): The selected institution
+        """
+        st.markdown("## Overview Mode")
+        
+        # Import overview page component
+        from app.pages.overview_page import OverviewPage
+        
+        # Create and render the overview page
+        overview_page = OverviewPage(self.db_service, institution)
+        overview_page._render_content()  # Direct call to avoid title duplication
+        
+        # Add data management section
+        st.markdown("### Data Management")
+        self._render_file_upload(institution)
+        
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("Reset Data"):
+                self._reset_institution_data(institution)
+                st.rerun()
+    
+    def _render_file_upload(self, institution: str) -> None:
+        """
+        Render file upload interface.
+        
+        Args:
+            institution (str): The selected institution
+        """
+        st.markdown("### Upload New Data")
+        uploaded_file = st.file_uploader("Upload New Data", type="xlsx")
+        
+        if uploaded_file:
+            try:
+                df = pd.read_excel(uploaded_file)
+                df = df.where(pd.notnull(df), None)
+                
+                if 'Selected' in df.columns:
+                    df.drop(columns=['Selected'], inplace=True)
+                    st.write("Removed 'Selected' column from uploaded data.")
+                
+                new_entries = df.to_dict(orient="records")
+                entries_to_save = []
+                
+                for entry_data in new_entries:
+                    entry_data['Selected'] = 'Do Not Select'  # Force 'Do Not Select' for every entry
+                    
+                    # Create Entry object
+                    entry = Entry(
+                        institution=institution.lower().strip(),
+                        event_number=str(entry_data.get('Event Number', '')),
+                        data=entry_data,
+                        selected='Do Not Select'
+                    )
+                    entries_to_save.append(entry)
+                
+                # Save entries to database
+                self.db_service.save_entries(entries_to_save)
+                
+                # Reload entries
+                all_entries = self.db_service.get_entries(institution)
+                self.session.set('all_entries', all_entries)
+                self.session.set('total_entries', len(all_entries))
+                
+                st.success(f"New data for {institution} uploaded successfully!")
+                st.rerun()  # Refresh the page
+            except Exception as e:
+                self.logger.error(f"Error processing uploaded file: {e}")
+                st.error(f"Error processing uploaded file: {e}")
+        else:
+            st.info("Please upload an Excel (.xlsx) file.")
+    
+    def _reset_institution_data(self, institution: str) -> None:
+        """
+        Reset all data for an institution.
+        
+        Args:
+            institution (str): The institution to reset data for
+        """
+        try:
+            st.write(f"Resetting data for institution: {institution}")
+            self.db_service.reset_institution_data(institution)
+            
+            # Clear session state
+            self._reset_session_state()
+            
+            st.success(f"All data for {institution} has been reset.")
+        except Exception as e:
+            st.error(f"Error during reset: {e}")
+    
+    def _reset_session_state(self) -> None:
+        """Reset session state related to entries."""
+        self.session.pop('all_entries', None)
+        self.session.pop('total_entries', None)
+        self.session.pop('current_index', None)
