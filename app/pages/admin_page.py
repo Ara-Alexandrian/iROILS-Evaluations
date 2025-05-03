@@ -88,9 +88,6 @@ class AdminPage(SecurePage):
         """
         st.markdown("## Analysis Mode")
         
-        # Import analysis page component
-        from app.pages.analysis_page import AnalysisPage
-        
         # Create and render the analysis page
         analysis_page = AnalysisPage(self.db_service, institution)
         analysis_page._render_content()  # Direct call to avoid title duplication
@@ -103,12 +100,6 @@ class AdminPage(SecurePage):
             institution (str): The selected institution
         """
         st.markdown("## Selection Mode")
-        
-        # Import selection page component
-        from app.pages.selection_page import SelectionPage
-        
-        # Create and render the selection page
-        selection_page = SelectionPage(self.db_service, institution)
         
         # Load entries if not already loaded
         all_entries = self.session.get('all_entries')
@@ -133,7 +124,7 @@ class AdminPage(SecurePage):
         
         # Display entries table
         self._render_entries_table(all_entries)
-        
+    
     def _render_selection_controls(self, institution: str) -> None:
         """
         Render selection control buttons.
@@ -474,47 +465,66 @@ class AdminPage(SecurePage):
             institution (str): The selected institution
         """
         st.markdown("### Upload New Data")
-        uploaded_file = st.file_uploader("Upload New Data", type="xlsx")
+        uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
         
         if uploaded_file:
             try:
+                # Read Excel file
                 df = pd.read_excel(uploaded_file)
                 df = df.where(pd.notnull(df), None)
                 
+                # Check for required columns
+                if 'Event Number' not in df.columns:
+                    st.error("The uploaded file must contain an 'Event Number' column.")
+                    return
+                
+                # Remove 'Selected' column if present
                 if 'Selected' in df.columns:
                     df.drop(columns=['Selected'], inplace=True)
-                    st.write("Removed 'Selected' column from uploaded data.")
+                    st.info("Removed 'Selected' column from uploaded data.")
                 
-                new_entries = df.to_dict(orient="records")
-                entries_to_save = []
+                # Preview data
+                st.markdown("### Data Preview")
+                st.dataframe(df.head(), use_container_width=True)
                 
-                for entry_data in new_entries:
-                    entry_data['Selected'] = 'Do Not Select'  # Force 'Do Not Select' for every entry
+                # Confirm upload
+                if st.button("Confirm Upload"):
+                    # Convert dataframe to entries
+                    entries = []
                     
-                    # Create Entry object
-                    entry = Entry(
-                        institution=institution.lower().strip(),
-                        event_number=str(entry_data.get('Event Number', '')),
-                        data=entry_data,
-                        selected='Do Not Select'
-                    )
-                    entries_to_save.append(entry)
+                    for _, row in df.iterrows():
+                        # Convert row to dictionary
+                        row_dict = row.to_dict()
+                        
+                        # Set default selection status
+                        row_dict['Selected'] = 'Do Not Select'
+                        
+                        # Create Entry object
+                        entry = Entry(
+                            institution=institution.lower().strip(),
+                            event_number=str(row_dict.get('Event Number', '')),
+                            data=row_dict,
+                            selected='Do Not Select'
+                        )
+                        
+                        entries.append(entry)
+                    
+                    # Save entries to database
+                    self.db_service.save_entries(entries)
+                    
+                    # Update session state
+                    all_entries = self.db_service.get_entries(institution)
+                    self.session.set('all_entries', all_entries)
+                    self.session.set('total_entries', len(all_entries))
+                    
+                    st.success(f"Successfully uploaded {len(entries)} entries for {institution}.")
+                    st.rerun()
                 
-                # Save entries to database
-                self.db_service.save_entries(entries_to_save)
-                
-                # Reload entries
-                all_entries = self.db_service.get_entries(institution)
-                self.session.set('all_entries', all_entries)
-                self.session.set('total_entries', len(all_entries))
-                
-                st.success(f"New data for {institution} uploaded successfully!")
-                st.rerun()  # Refresh the page
             except Exception as e:
-                self.logger.error(f"Error processing uploaded file: {e}")
                 st.error(f"Error processing uploaded file: {e}")
+                self.logger.error(f"Error processing uploaded file: {e}")
         else:
-            st.info("Please upload an Excel (.xlsx) file.")
+            st.info("Please upload an Excel (.xlsx) file containing entry data.")
     
     def _reset_institution_data(self, institution: str) -> None:
         """
