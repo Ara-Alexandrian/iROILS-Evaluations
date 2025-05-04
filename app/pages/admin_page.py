@@ -175,20 +175,21 @@ class AdminPage(SecurePage):
         """
         st.markdown("### Entries")
         
-        # Convert entries to dataframe for display
+        # Convert entries to dataframe with proper type handling
         entries_data = []
         
         for entry in entries:
-            # Extract key fields for display
+            # Extract key fields for display with explicit type handling
             entry_data = {
-                'Event Number': entry.event_number,
-                'Selected': entry.selected
+                'Event Number': str(entry.event_number),  # Ensure string type
+                'Selected': str(entry.selected)           # Ensure string type
             }
             
-            # Add other fields from entry data
+            # Add other fields from entry data with type handling
             for key, value in entry.data.items():
                 if key not in ['Event Number', 'Selected'] and value is not None:
-                    entry_data[key] = value
+                    # Convert any numeric or complex types to strings for safe display
+                    entry_data[key] = str(value) if isinstance(value, (int, float, complex)) else value
             
             entries_data.append(entry_data)
         
@@ -196,45 +197,60 @@ class AdminPage(SecurePage):
             st.warning("No entries to display.")
             return
         
-        # Create dataframe
+        # Create dataframe with safe types
         df = pd.DataFrame(entries_data)
         
-        # Ensure Event Number is string type
-        df['Event Number'] = df['Event Number'].astype(str)
+        # Convert dataframe to a safe format with string-only values
+        # This completely avoids Arrow conversion issues
+        safe_data = []
+        for _, row in df.iterrows():
+            safe_row = {}
+            for col in df.columns:
+                # Handle None/NaN values and convert ALL values to strings for consistency
+                val = row[col]
+                if pd.isna(val) or val is None:
+                    safe_row[col] = ""  # Use empty string for None/NaN values
+                else:
+                    safe_row[col] = str(val)
+            safe_data.append(safe_row)
         
-        # Add selection column with checkboxes
-        selection_col = []
-        for i, row in df.iterrows():
-            selection_col.append(row['Selected'] == 'Selected')
+        # Create a clean dataframe with string values only
+        safe_df = pd.DataFrame(safe_data)
         
-        # Display dataframe with selection column
-        edited_df = st.data_editor(
-            df,
-            column_config={
-                "Selected": st.column_config.CheckboxColumn(
-                    "Select",
-                    default=False,
-                    help="Select this entry for evaluation"
-                )
-            },
-            disabled=["Event Number"],
-            hide_index=True,
-            use_container_width=True
-        )
+        # Instead of using data_editor, create a custom table with checkboxes using columns
+        st.markdown("### Entries")
         
-        # Check for changes in selection
-        for i, row in edited_df.iterrows():
-            event_number = row['Event Number']
-            is_selected = row['Selected']
-            
-            # Find entry by event number
-            entry = next((e for e in entries if e.event_number == event_number), None)
-            
-            if entry and ((is_selected and entry.selected != 'Selected') or 
-                         (not is_selected and entry.selected == 'Selected')):
-                # Update entry selection status
-                new_status = 'Selected' if is_selected else 'Do Not Select'
-                self._update_entry_selection(entry, new_status)
+        # Create expander to view entries with selection controls
+        with st.expander("View Entries", expanded=True):
+            # Display selection options for each entry
+            for idx, row in safe_df.iterrows():
+                event_number = row['Event Number']
+                is_selected = row['Selected'] == 'Selected'
+                
+                # Create a row for each entry with checkbox
+                cols = st.columns([1, 4])
+                with cols[0]:
+                    selected = st.checkbox(f"Select", value=is_selected, key=f"entry_{event_number}")
+                    
+                    # Handle selection change
+                    if selected != is_selected:
+                        # Find the corresponding entry
+                        entry = next((e for e in all_entries if e.event_number == event_number), None)
+                        if entry:
+                            # Update entry selection status
+                            new_status = 'Selected' if selected else 'Do Not Select'
+                            self._update_entry_selection(entry, new_status)
+                            st.rerun()
+                
+                with cols[1]:
+                    # Show entry details
+                    st.markdown(f"**Event {event_number}**")
+                    for col, val in row.items():
+                        if col not in ['Event Number', 'Selected']:
+                            st.text(f"{col}: {val}")
+                    st.divider()
+        
+        # Selection changes are handled directly in the checkbox callback
     
     def _update_selection_status(self, status: str, event_numbers: Optional[List[str]]) -> None:
         """
@@ -450,15 +466,62 @@ class AdminPage(SecurePage):
         # Create dataframe
         df = pd.DataFrame(entries_data)
         
-        # Ensure Event Number is string type
-        df['Event Number'] = df['Event Number'].astype(str)
+        # Convert dataframe to a safe format with string-only values
+        # This completely avoids Arrow conversion issues
+        safe_data = []
+        for _, row in df.iterrows():
+            safe_row = {}
+            for col in df.columns:
+                # Handle None/NaN values and convert ALL values to strings for consistency
+                val = row[col]
+                if pd.isna(val) or val is None:
+                    safe_row[col] = ""  # Use empty string for None/NaN values
+                else:
+                    safe_row[col] = str(val)
+            safe_data.append(safe_row)
+            
+        # Create a clean dataframe with string values only
+        safe_df = pd.DataFrame(safe_data)
+            
+        # Instead of using dataframe or nested expanders (which aren't allowed),
+        # create a custom display using containers and columns
         
-        # Display dataframe
-        st.dataframe(
-            df,
-            hide_index=True,
-            use_container_width=True
-        )
+        st.markdown("#### Entry Details")
+        
+        # Show only the first 100 entries for performance
+        display_entries = safe_df.head(100) if len(safe_df) > 100 else safe_df
+        
+        # Display each entry as a collapsible section using a different approach
+        for idx, row in display_entries.iterrows():
+            event_number = row['Event Number']
+            selection_status = row['Selected']
+            
+            # Create container for each entry with visible header
+            st.markdown(f"**Event {event_number} - {selection_status}**")
+            
+            # Use columns for a compact display
+            col1, col2 = st.columns(2)
+            
+            # Split the columns between the two display columns
+            cols = list(row.items())
+            midpoint = len(cols) // 2
+            
+            # First half of columns in first display column
+            with col1:
+                for col, val in cols[:midpoint]:
+                    st.text(f"{col}: {val}")
+                    
+            # Second half of columns in second display column
+            with col2:
+                for col, val in cols[midpoint:]:
+                    st.text(f"{col}: {val}")
+            
+            # Add separator between entries
+            st.markdown("---")
+        
+        # Show message if showing limited entries
+        if len(safe_df) > 100:
+            st.info(f"Showing 100 of {len(safe_df)} entries. Filter to see more specific results.")
         
         # Display summary
         st.markdown(f"**Showing {len(filtered_entries)} of {len(entries)} entries**")
@@ -491,7 +554,23 @@ class AdminPage(SecurePage):
                 
                 # Preview data
                 st.markdown("### Data Preview")
-                st.dataframe(df.head(), use_container_width=True)
+                
+                # Create a preview display using custom elements to avoid Arrow conversion issues
+                preview_rows = df.head()
+                with st.expander("Data Preview", expanded=True):
+                    # Display column headers
+                    st.markdown(" | ".join([f"**{col}**" for col in preview_rows.columns]))
+                    st.markdown("---")
+                    
+                    # Display each row
+                    for idx, row in preview_rows.iterrows():
+                        row_values = []
+                        for col in preview_rows.columns:
+                            # Convert to string and handle None values
+                            val = str(row[col]) if row[col] is not None else ""
+                            row_values.append(val)
+                        st.markdown(" | ".join(row_values))
+                        st.markdown("---")
                 
                 # Confirm upload
                 if st.button("Confirm Upload"):

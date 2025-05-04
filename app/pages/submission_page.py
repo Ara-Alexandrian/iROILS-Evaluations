@@ -34,7 +34,7 @@ class SubmissionPage(SecurePage):
             auth_service (AuthService): The authentication service
             db_service (DatabaseService): The database service
         """
-        super().__init__("Evaluator Dashboard", auth_service, required_role='evaluator')
+        super().__init__("User Submission", auth_service, required_role='evaluator')
         self.db_service = db_service
         self.logger = logging.getLogger(__name__)
     
@@ -44,10 +44,15 @@ class SubmissionPage(SecurePage):
         """
         # Get evaluator information from session
         evaluator_username = self.session.get('username')
+        
+        # Try both key names for institution
         institution = self.session.get('evaluator_institution')
+        if not institution:
+            institution = self.session.get('institution')
         
         if not evaluator_username or not institution:
-            st.error("Session data is incomplete. Please log out and log in again.")
+            st.error(f"Session data is incomplete. Username: {evaluator_username}, Institution: {institution}")
+            st.error("Please log out and log in again.")
             return
         
         # Display evaluator information
@@ -167,6 +172,20 @@ class SubmissionPage(SecurePage):
             )
         except Exception as e:
             st.error(f"Error retrieving existing evaluation: {e}")
+            
+        # Default values for sliders
+        default_summary_score = 5
+        default_tag_score = 5
+        default_feedback = ""
+        
+        # Set default values from existing evaluation if available
+        if existing_evaluation:
+            try:
+                default_summary_score = int(existing_evaluation.summary_score)
+                default_tag_score = int(existing_evaluation.tag_score)
+                default_feedback = existing_evaluation.feedback or ""
+            except (TypeError, ValueError) as e:
+                st.warning(f"Could not use existing evaluation scores (using defaults): {e}")
         
         # Evaluation form
         st.markdown("### Submit Evaluation")
@@ -177,7 +196,7 @@ class SubmissionPage(SecurePage):
                 "Summary Score (1-10)", 
                 min_value=1, 
                 max_value=10, 
-                value=existing_evaluation.summary_score if existing_evaluation else 5
+                value=default_summary_score
             )
             
             # Tag score (1-10)
@@ -185,13 +204,13 @@ class SubmissionPage(SecurePage):
                 "Tag Score (1-10)", 
                 min_value=1, 
                 max_value=10, 
-                value=existing_evaluation.tag_score if existing_evaluation else 5
+                value=default_tag_score
             )
             
             # Feedback
             feedback = st.text_area(
                 "Feedback (optional)", 
-                value=existing_evaluation.feedback if existing_evaluation else "",
+                value=default_feedback,
                 height=150
             )
             

@@ -201,8 +201,24 @@ class AnalysisPage(BasePage):
             # Create dataframe
             df = pd.DataFrame(evaluator_data)
             
-            # Display dataframe
-            st.dataframe(df, use_container_width=True)
+            # Display evaluator data using custom table to avoid Arrow conversion issues
+            st.markdown("#### Evaluator Performance Data")
+            
+            # Display column headers
+            cols = st.columns(len(df.columns))
+            for i, col_name in enumerate(df.columns):
+                cols[i].markdown(f"**{col_name}**")
+            
+            # Display data rows
+            for _, row in df.iterrows():
+                row_cols = st.columns(len(df.columns))
+                for i, col_name in enumerate(df.columns):
+                    # Convert value to string and display
+                    val = str(row[col_name]) if not pd.isna(row[col_name]) else ""
+                    row_cols[i].markdown(val)
+                
+                # Add separator
+                st.markdown("---")
             
             # Create evaluator comparison charts
             col1, col2 = st.columns(2)
@@ -288,8 +304,15 @@ class AnalysisPage(BasePage):
                 if key not in ['Selected'] and value is not None:
                     entry_data[key] = [value]
             
-            entry_df = pd.DataFrame(entry_data)
-            st.dataframe(entry_df, use_container_width=True)
+            # Display entry details directly without using a dataframe 
+            # to avoid Arrow conversion issues
+            st.markdown("##### Entry Data")
+            
+            # For each field, display on a new line
+            for key, value in entry_data.items():
+                val = value[0]  # First (and only) row value
+                val_str = str(val) if val is not None and not pd.isna(val) else ""
+                st.markdown(f"**{key}**: {val_str}")
             
             # Get evaluations for this entry
             st.markdown("#### Evaluations")
@@ -314,9 +337,27 @@ class AnalysisPage(BasePage):
                 st.info(f"No evaluations found for entry {selected_entry_number}.")
                 return
             
-            # Display evaluations
+            # Create evaluations dataframe
             evals_df = pd.DataFrame(evaluations_data)
-            st.dataframe(evals_df, use_container_width=True)
+            
+            # Display evaluations using custom table to avoid Arrow conversion issues
+            st.markdown("##### Evaluation Data")
+            
+            # Display column headers
+            cols = st.columns(len(evals_df.columns))
+            for i, col_name in enumerate(evals_df.columns):
+                cols[i].markdown(f"**{col_name}**")
+            
+            # Display data rows
+            for _, row in evals_df.iterrows():
+                row_cols = st.columns(len(evals_df.columns))
+                for i, col_name in enumerate(evals_df.columns):
+                    # Convert value to string and display
+                    val = str(row[col_name]) if not pd.isna(row[col_name]) else ""
+                    row_cols[i].markdown(val)
+                
+                # Add separator
+                st.markdown("---")
             
             # Display evaluation scores chart
             fig_scores = go.Figure()
@@ -435,7 +476,22 @@ class AnalysisPage(BasePage):
                 'Tag Score': tag_stats
             })
             
-            st.dataframe(stats_df, use_container_width=True)
+            # Display statistics using custom table to avoid Arrow conversion issues
+            
+            # Create a formatted table with markdown
+            st.markdown("##### Statistical Data")
+            
+            # Create header row
+            header = "| Statistic | Summary Score | Tag Score |"
+            separator = "|----------|--------------|----------|"
+            st.markdown(header)
+            st.markdown(separator)
+            
+            # Create data rows
+            for stat_name in summary_stats.keys():
+                summary_val = f"{summary_stats[stat_name]:.3f}"
+                tag_val = f"{tag_stats[stat_name]:.3f}"
+                st.markdown(f"| **{stat_name}** | {summary_val} | {tag_val} |")
             
             # Score correlation
             st.markdown("#### Score Correlation")

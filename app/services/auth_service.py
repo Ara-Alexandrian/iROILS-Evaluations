@@ -34,9 +34,9 @@ class AuthService:
         self.logger = logging.getLogger(__name__)
         self.session_timeout = session_timeout
         
-        # Admin credentials (temporary simplified credentials for testing)
+        # Admin credentials
         self.admin_credentials = {
-            'iroils': 'iROILS',
+            'admin': '!admin',
             '1': '1'  # Temporary credential for testing
         }
         
@@ -48,7 +48,7 @@ class AuthService:
             'gpitcher': {'password': 'B3kN9wL5', 'institution': 'MBPCC'},
             'jashford': {'password': 'P6vT8mJ2', 'institution': 'MBPCC'},
             'hspears': {'password': 'R4xB2gW9', 'institution': 'MBPCC'},
-            'aalexandrian': {'password': '1232', 'institution': 'UAB'},
+            'aalexandrian': {'password': 'S9hL3dT7', 'institution': 'UAB'},
             'nviscariello': {'password': 'L8kY5nJ3', 'institution': 'UAB'},
             'rsullivan': {'password': 'C7bM5nW2', 'institution': 'UAB'},
             'jbelliveau': {'password': 'F3rP6yV8', 'institution': 'UAB'},
