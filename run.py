@@ -17,17 +17,17 @@ from typing import List, Dict, Any
 APP_PAGES = [
     {
         'name': 'Admin Dashboard',
-        'script': os.path.join(os.path.dirname(__file__), 'app', 'main.py'),
+        'script': os.path.join(os.path.dirname(__file__), 'app', 'main_v2.py'),
         'port': 8501
     },
     {
         'name': 'Evaluator Dashboard',
-        'script': os.path.join(os.path.dirname(__file__), 'app', 'submissions.py'),
+        'script': os.path.join(os.path.dirname(__file__), 'app', 'submissions_v2.py'),
         'port': 8502
     },
     {
         'name': 'Database Dashboard',
-        'script': os.path.join(os.path.dirname(__file__), 'app', 'dashboard.py'),
+        'script': os.path.join(os.path.dirname(__file__), 'app', 'dashboard_v2.py'),
         'port': 8503
     }
 ]
