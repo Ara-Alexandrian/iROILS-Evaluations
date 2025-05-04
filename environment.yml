@@ -1,0 +1,19 @@
+name: iroils
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - pip>=22.0.0
+  - pip:
+    - streamlit>=1.24.0
+    - pandas>=1.5.3
+    - numpy>=1.24.3
+    - openpyxl>=3.1.2
+    - psycopg2-binary>=2.9.6
+    - typing-extensions>=4.7.1
+    - plotly>=5.14.0
+    - statsmodels>=0.14.0
+    - pytest>=7.3.1
+    - pytest-mock>=3.11.1
+    - redis>=4.5.0

@@ -1,161 +1,176 @@
+"""
+Overview page for the iROILS Evaluations application.
+
+This module provides the overview interface for the application.
+"""
+
+import logging
 import streamlit as st
 import pandas as pd
-import logging
+import plotly.express as px
+import plotly.graph_objects as go
 
-class OverviewPage:
-    def __init__(self, db_manager, institution):
-        self.db_manager = db_manager
-        self.institution = institution
+from app.services.auth_service import AuthService
+from app.services.database_service import DatabaseService
+from app.pages import BasePage
 
-    def show(self):
-        st.header(f"Overview Mode - {self.institution}")
 
-        # Add a reset button to allow resetting data for the institution
-        if st.button("Reset Institution Data"):
-            self.reset_institution_data()
-
-        # Use entries from session state
-        entries = st.session_state.get('all_entries', [])
-        total_entries = len(entries)
-
-        if total_entries == 0:
-            st.warning("No entries available.")
-            return
-
-        # Add search input and filter options
-        self.render_search_and_filters(entries)
-
-        # Get filtered entries
-        filtered_entries = self.get_filtered_entries(entries)
-        total_filtered_entries = len(filtered_entries)
-
-        if total_filtered_entries == 0:
-            st.warning("No entries match the search and filter criteria.")
-            return
-
-        # Allow the user to jump to a selected entry
-        self.render_entry_navigation(filtered_entries, total_filtered_entries)
-
-        # Handle data upload
-        self.render_file_upload()
-
-    def render_search_and_filters(self, entries):
-        """Render search and filter options for overview."""
-        st.markdown("### Search and Filter Selected Entries")
-
-        # Search input
-        st.text_input("Search by Narrative or Assigned Tags", key='overview_search_query')
-
-        # Filter by Assigned Tags
-        all_tags = {tag.strip() for entry in entries for tag in entry.get('Assigned Tags', '').split(',') if tag.strip()}
-        st.multiselect("Filter by Assigned Tags", options=sorted(all_tags), key='overview_tag_filter')
-
-    def get_filtered_entries(self, entries):
-        """Filter entries based on search, tag criteria, and selection status."""
-        search_query = st.session_state.get('overview_search_query', '').lower()
-        tag_filter = st.session_state.get('overview_tag_filter', [])
-
-        # Filter entries that are selected for evaluation
-        filtered_entries = [
-            entry for entry in entries
-            if entry.get('Selected', 'Do Not Select') == 'Select for Evaluation'
-        ]
-
-        # Apply search filter
-        if search_query:
-            filtered_entries = [
-                entry for entry in filtered_entries
-                if search_query in entry.get('Narrative', '').lower() or
-                search_query in entry.get('Assigned Tags', '').lower()
-            ]
-
-        # Apply tag filter
-        if tag_filter:
-            filtered_entries = [
-                entry for entry in filtered_entries
-                if any(tag.strip() in tag_filter for tag in entry.get('Assigned Tags', '').split(','))
-            ]
-
-        return filtered_entries
-
-    def render_entry_navigation(self, filtered_entries, total_filtered_entries):
-        """Render a dropdown to allow users to jump to a specific entry."""
-        st.markdown("### Jump to Selected Entry")
-        selected_event = st.selectbox("Select Event", [entry.get('Event Number', 'N/A') for entry in filtered_entries], key='overview_event_select')
-
-        selected_entry = next((entry for entry in filtered_entries if entry.get('Event Number') == selected_event), None)
+class OverviewPage(BasePage):
+    """
+    Overview page component.
+    
+    This page provides a high-level overview of the application status
+    and available features.
+    """
+    
+    def __init__(self, auth_service: AuthService, db_service: DatabaseService):
+        """
+        Initialize the overview page.
         
-        if selected_entry:
-            self.display_entry_details(selected_entry, total_filtered_entries)
-
-    def display_entry_details(self, current_entry, total_filtered_entries):
-        """Display the details of the current entry."""
-        st.write(f"### Event Number: {current_entry.get('Event Number', 'N/A')}")
-        st.write(f"**Narrative:** {current_entry.get('Narrative', '')}")
-        st.write(f"**Assigned Tags:** {current_entry.get('Assigned Tags', '')}")
-        st.write(f"**Succinct Summary:** {current_entry.get('Succinct Summary', '')}")
-
-        # Summary
-        st.markdown(f"**Total Selected Entries:** {total_filtered_entries}")
-        st.markdown(f"**Total Entries in Database:** {len(st.session_state['all_entries'])}")
-
-    def reset_institution_data(self):
-        """Reset all entries and evaluations for the institution in the database."""
-        selected_institution = self.institution
+        Args:
+            auth_service (AuthService): The authentication service
+            db_service (DatabaseService): The database service
+        """
+        super().__init__("iROILS Evaluations Overview")
+        self.auth_service = auth_service
+        self.db_service = db_service
+        self.logger = logging.getLogger(__name__)
+    
+    def _render_content(self) -> None:
+        """
+        Render the overview page content.
+        """
+        st.markdown("## Welcome to iROILS Evaluations")
+        
+        st.markdown("""
+        This application provides a comprehensive platform for evaluation and analysis of entries.
+        
+        ### Available Features:
+        
+        - **Admin Dashboard**: Manage entries, evaluators, and view statistics
+        - **Data Analysis**: Explore evaluation data with interactive visualizations
+        - **Tag Analysis**: Analyze tag usage and scoring patterns
+        - **User Submission**: Submit evaluations for selected entries
+        
+        Select a module from the sidebar to get started.
+        """)
+        
+        # Display system statistics
+        self._display_system_stats()
+    
+    def _display_system_stats(self) -> None:
+        """
+        Display system statistics.
+        """
+        st.markdown("## System Statistics")
+        
         try:
-            st.write(f"Resetting data for institution: {selected_institution}")
-            self.db_manager.reset_data(selected_institution)  # Reset data in PostgreSQL
-
-            # Clear session state entries after resetting data
-            st.session_state.pop('all_entries', None)
-            st.session_state.pop('total_entries', None)
-            st.session_state.pop('current_eval_index', None)
-            st.session_state.pop('evaluator_data', None)  # Clear any evaluated data from session
-
-            st.success(f"All data for {selected_institution} has been reset.")
-
+            # Get institutions
+            institutions = ["UAB", "MBPCC"]
+            
+            # Initialize statistics
+            total_entries = 0
+            total_evaluations = 0
+            evaluator_count = 0
+            
+            # Get statistics for each institution
+            institution_stats = []
+            
+            for institution in institutions:
+                # Get institution stats
+                stats = self.db_service.get_institution_stats(institution)
+                
+                # Get entries
+                entries = self.db_service.get_entries(institution)
+                
+                # Get selected entries
+                selected_entries = [e for e in entries if e.selected == 'Selected']
+                
+                # Add to totals
+                total_entries += len(entries)
+                total_evaluations += stats.total_evaluations
+                
+                # Add institution stats
+                institution_stats.append({
+                    'Institution': institution,
+                    'Total Entries': len(entries),
+                    'Selected Entries': len(selected_entries),
+                    'Total Evaluations': stats.total_evaluations,
+                    'Average Summary Score': stats.average_summary,
+                    'Average Tag Score': stats.average_tag
+                })
+            
+            # Get evaluator count
+            evaluators = self.db_service.get_all_evaluators()
+            evaluator_count = len(evaluators)
+            
+            # Display metrics
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Total Entries", total_entries)
+            
+            with col2:
+                st.metric("Total Evaluations", total_evaluations)
+            
+            with col3:
+                st.metric("Evaluators", evaluator_count)
+            
+            # Display institution statistics
+            if institution_stats:
+                st.markdown("### Institution Statistics")
+                
+                # Create dataframe
+                df = pd.DataFrame(institution_stats)
+                
+                # Display as a table using markdown
+                st.markdown("| Institution | Total Entries | Selected Entries | Total Evaluations | Avg Summary | Avg Tag |")
+                st.markdown("|-------------|---------------|------------------|-------------------|-------------|---------|")
+                
+                for _, row in df.iterrows():
+                    st.markdown(
+                        f"| {row['Institution']} | {row['Total Entries']} | {row['Selected Entries']} | "
+                        f"{row['Total Evaluations']} | {row['Average Summary Score']:.2f} | {row['Average Tag Score']:.2f} |"
+                    )
+                
+                # Create institution comparison chart
+                st.markdown("### Institution Comparison")
+                
+                fig = go.Figure()
+                
+                fig.add_trace(go.Bar(
+                    x=df['Institution'],
+                    y=df['Average Summary Score'],
+                    name='Average Summary Score',
+                    marker_color='blue'
+                ))
+                
+                fig.add_trace(go.Bar(
+                    x=df['Institution'],
+                    y=df['Average Tag Score'],
+                    name='Average Tag Score',
+                    marker_color='green'
+                ))
+                
+                fig.update_layout(
+                    barmode='group',
+                    title='Average Scores by Institution',
+                    xaxis_title='Institution',
+                    yaxis_title='Average Score'
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
         except Exception as e:
-            st.error(f"Error during reset: {e}")
-
-        # Trigger a rerun to refresh the page
-        st.rerun()
-
-    def render_file_upload(self):
-        """Handle the file upload process."""
-        st.markdown("### Upload New Data")
-
-        # Add a unique key to avoid duplicate file upload issues
-        uploaded_file = st.file_uploader("Upload New Data", type="xlsx", key='file_upload_overview')
-
-        if uploaded_file:
-            try:
-                # Read the uploaded file into a pandas DataFrame
-                df = pd.read_excel(uploaded_file)
-
-                # Replace NaN values with None (null in JSON)
-                df = df.where(pd.notnull(df), None)
-
-                # Remove 'Selected' column if it exists
-                if 'Selected' in df.columns:
-                    df.drop(columns=['Selected'], inplace=True)
-                    st.write("Removed 'Selected' column from uploaded data.")
-
-                # Convert the DataFrame to a list of dictionaries (entries)
-                new_entries = df.to_dict(orient="records")
-
-                # Ensure that 'Selected' is set to 'Do Not Select' by default
-                for entry in new_entries:
-                    entry['Selected'] = 'Do Not Select'
-
-                # Save entries to the database (PostgreSQL)
-                self.db_manager.save_selected_entries(self.institution, new_entries)
-
-                # Reload the entries into session state
-                all_entries = self.db_manager.get_selected_entries(self.institution)
-                st.session_state['all_entries'] = all_entries
-                st.session_state['total_entries'] = len(all_entries)
-
-                st.success(f"New data for {self.institution} uploaded successfully!")
-            except Exception as e:
-                logging.error(f"Error processing uploaded file: {e}")
-                st.error(f"Error processing uploaded file: {e}")
+            st.error(f"Error loading system statistics: {e}")
+            self.logger.error(f"Error loading system statistics: {e}")
+            
+    def render(self) -> None:
+        """
+        Render the overview page.
+        """
+        # Set title
+        st.title(self.title)
+        
+        # Render content
+        self._render_content()

@@ -18,7 +18,7 @@ class LoginManager:
             'gpitcher': {'password': 'B3kN9wL5', 'institution': 'MBPCC'},
             'jashford': {'password': 'P6vT8mJ2', 'institution': 'MBPCC'},
             'hspears': {'password': 'R4xB2gW9', 'institution': 'MBPCC'},
-            'aalexandrian': {'password': 'M7jH2xV5', 'institution': 'UAB'},
+            'aalexandrian': {'password': '1232', 'institution': 'UAB'},
             'nviscariello': {'password': 'L8kY5nJ3', 'institution': 'UAB'},
             'rsullivan': {'password': 'C7bM5nW2', 'institution': 'UAB'},
             'jbelliveau': {'password': 'F3rP6yV8', 'institution': 'UAB'},

@@ -1,135 +1,515 @@
+"""
+Analysis page for the iROILS Evaluations application.
+
+This module provides an interface for administrators to analyze
+evaluation data and view statistics.
+"""
+
+import logging
+import pandas as pd
+import numpy as np
+from typing import Dict, List, Any, Optional, Tuple
+
 import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
 
-class AnalysisPage:
-    def __init__(self, db_manager):
-        self.db_manager = db_manager
+from app.pages import BasePage
+from app.services.database_service import DatabaseService
+from app.models.entry import Entry
+from app.models.evaluation import Evaluation
 
-    def show(self):
-        st.header("Analysis Mode")
 
-        # Institution Averages (existing code remains unchanged)
-        st.subheader("Institution Averages")
-
-        institutions = ["UAB", "MBPCC"]
-        total_entries = 0
-        total_evaluations = 0
-        cumulative_summary_total = 0
-        cumulative_tag_total = 0
-        institution_stats_list = []
-
-        # Calculate stats for each institution
-        for institution in institutions:
-            # Fetch only selected entries for this institution
-            selected_entries = self.db_manager.get_selected_entries(institution)
-            selected_entries = [entry for entry in selected_entries if entry.get('Selected') == 'Select for Evaluation']
-            total_entries += len(selected_entries)
-
-            stats = self.db_manager.get_institution_stats(institution)
-            cumulative_summary = stats['cumulative_summary']
-            cumulative_tag = stats['cumulative_tag']
-            total_evals = stats['total_evaluations']
-
-            # Compute averages
-            avg_summary = cumulative_summary / total_evals if total_evals > 0 else 0.0
-            avg_tag = cumulative_tag / total_evals if total_evals > 0 else 0.0
-
-            total_evaluations += total_evals
-            cumulative_summary_total += cumulative_summary
-            cumulative_tag_total += cumulative_tag
-
-            institution_stats_list.append({
-                'Institution': institution,
-                'Average Summary Score': round(avg_summary, 2),
-                'Average Tag Score': round(avg_tag, 2),
-                'Total Evaluations': total_evals
-            })
-
-        # Display stats for each institution
-        for stats in institution_stats_list:
-            st.write(f"**{stats['Institution']}**")
-            st.write(f"- Average Summary Score: {stats['Average Summary Score']}")
-            st.write(f"- Average Tag Score: {stats['Average Tag Score']}")
-            st.write(f"- Total Evaluations: {stats['Total Evaluations']}")
-
-        # Display combined averages across all institutions
-        st.subheader("Combined Averages Across All Institutions")
-
-        combined_avg_summary_score = cumulative_summary_total / total_evaluations if total_evaluations > 0 else 0.0
-        combined_avg_tag_score = cumulative_tag_total / total_evaluations if total_evaluations > 0 else 0.0
-        combined_aggregate_score = (combined_avg_summary_score + combined_avg_tag_score) / 2
-
-        st.metric("Combined Average Summary Score", f"{combined_avg_summary_score:.2f}")
-        st.metric("Combined Average Tag Score", f"{combined_avg_tag_score:.2f}")
-        st.metric("Combined Aggregate Score", f"{combined_aggregate_score:.2f}")
-
-        st.write(f"Total Evaluations Across All Institutions: {total_evaluations}")
-        st.write(f"Total Entries in Database: {total_entries}")
-
-        # Filter Evaluations by Evaluator
-        st.subheader("Filter Evaluations by Evaluator")
-        # Fetch evaluators from the database
-        evaluators = self.db_manager.get_all_evaluators()
-        selected_evaluator = st.selectbox("Select Evaluator", evaluators)
-
-        if selected_evaluator:
-            # Get selected entries evaluated by the evaluator
-            evaluator_entries = []
-            for institution in institutions:
-                # Fetch only selected entries for this institution
-                selected_entries = self.db_manager.get_selected_entries(institution)
-                selected_entries = [entry for entry in selected_entries if entry.get('Selected') == 'Select for Evaluation']
-                
-                for entry in selected_entries:
-                    evaluations = self.db_manager.get_evaluations_by_evaluator(selected_evaluator, entry.get('Event Number'))
-                    
-                    if evaluations:
-                        # Evaluated entry
-                        for evaluation in evaluations:
-                            evaluator_entries.append({
-                                'Event Number': entry.get('Event Number'),
-                                'Evaluated': True,
-                                'Summary Score': evaluation['summary_score'],
-                                'Tag Score': evaluation['tag_score'],
-                                'Feedback': evaluation['feedback'],
-                                'Narrative': entry.get('Narrative', ''),
-                                'Assigned Tags': entry.get('Assigned Tags', '')
-                            })
-                    else:
-                        # Non-evaluated entry
-                        evaluator_entries.append({
-                            'Event Number': entry.get('Event Number'),
-                            'Evaluated': False,
-                            'Narrative': entry.get('Narrative', ''),
-                            'Assigned Tags': entry.get('Assigned Tags', '')
-                        })
-
-            # Dropdown list for the entries with check marks or X's
-            entry_display = [
-                f"Entry {i+1} - {entry['Event Number']} {'✅' if entry['Evaluated'] else '❌'}"
-                for i, entry in enumerate(evaluator_entries)
-            ]
-
-            selected_entry_display = st.selectbox("Select an Entry", entry_display)
-            selected_entry_index = int(selected_entry_display.split()[1]) - 1  # Extract index from selected entry
-            selected_entry = evaluator_entries[selected_entry_index]
-
-            # Display selected entry details in a card
-            st.subheader(f"Entry: {selected_entry['Event Number']}")
-
-            # Display Narrative, Tags, Evaluation, and Feedback inside a card-like container
-            st.markdown(
-                """
-                <div style="padding: 15px; background-color: #f9f9f9; border-radius: 8px;">
-                """,
-                unsafe_allow_html=True
+class AnalysisPage(BasePage):
+    """
+    Analysis page component.
+    
+    This page provides functionality for administrators to analyze
+    evaluation data and view statistics.
+    """
+    
+    def __init__(self, db_service: DatabaseService, institution: str = None):
+        """
+        Initialize the analysis page.
+        
+        Args:
+            db_service (DatabaseService): The database service
+            institution (str, optional): The institution to analyze data for
+        """
+        super().__init__("Analysis Mode")
+        self.db_service = db_service
+        self.institution = institution
+        self.logger = logging.getLogger(__name__)
+    
+    def _render_content(self) -> None:
+        """
+        Render the analysis page content.
+        """
+        # Institution selection if not provided
+        if self.institution is None:
+            self.institution = st.selectbox(
+                "Select Institution",
+                ["UAB", "MBPCC"],
+                key='analysis_institution_select'
             )
-            st.write(f"**Narrative:** {selected_entry['Narrative']}")
-            st.write(f"**Assigned Tags:** {selected_entry['Assigned Tags']}")
-
-            if selected_entry['Evaluated']:
-                st.write(f"**Summary Score:** {selected_entry['Summary Score']}")
-                st.write(f"**Tag Score:** {selected_entry['Tag Score']}")
-                st.write(f"**Feedback:** {selected_entry['Feedback']}")
-            else:
-                st.write("This entry has not been evaluated yet.")
-            st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown(f"### Analysis for {self.institution}")
+        
+        # Load data for analysis
+        try:
+            # Get entries for the institution
+            entries = self.db_service.get_entries(self.institution)
+            
+            if not entries:
+                st.warning(f"No entries found for {self.institution}. Please upload data first.")
+                return
+            
+            # Get evaluators for the institution
+            evaluators = [e for e in self.db_service.get_all_evaluators()]
+            
+            if not evaluators:
+                st.warning(f"No evaluations found for {self.institution}.")
+                return
+            
+            # Display analysis tabs
+            tabs = st.tabs([
+                "Institution Overview", 
+                "Evaluator Performance", 
+                "Entry Analysis",
+                "Statistical Analysis"
+            ])
+            
+            with tabs[0]:
+                self._render_institution_overview()
+            
+            with tabs[1]:
+                self._render_evaluator_performance(evaluators)
+            
+            with tabs[2]:
+                self._render_entry_analysis(entries)
+            
+            with tabs[3]:
+                self._render_statistical_analysis(entries, evaluators)
+            
+        except Exception as e:
+            st.error(f"Error loading analysis data: {e}")
+            self.logger.error(f"Error loading analysis data: {e}")
+    
+    def _render_institution_overview(self) -> None:
+        """
+        Render institution overview.
+        """
+        st.markdown("### Institution Overview")
+        
+        try:
+            # Get institution stats
+            stats = self.db_service.get_institution_stats(self.institution)
+            
+            # Display metrics
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Total Evaluations", stats.total_evaluations)
+            
+            with col2:
+                avg_summary = f"{stats.average_summary:.2f}"
+                st.metric("Average Summary Score", avg_summary)
+            
+            with col3:
+                avg_tag = f"{stats.average_tag:.2f}"
+                st.metric("Average Tag Score", avg_tag)
+            
+            # Create institution comparison chart (if institution is not specified)
+            if self.institution is None:
+                st.markdown("### Institution Comparison")
+                
+                # Get stats for all institutions
+                institutions = ["UAB", "MBPCC"]
+                institution_data = []
+                
+                for inst in institutions:
+                    inst_stats = self.db_service.get_institution_stats(inst)
+                    institution_data.append({
+                        'Institution': inst,
+                        'Total Evaluations': inst_stats.total_evaluations,
+                        'Average Summary Score': inst_stats.average_summary,
+                        'Average Tag Score': inst_stats.average_tag
+                    })
+                
+                # Create comparison chart
+                df_inst = pd.DataFrame(institution_data)
+                
+                fig_inst = go.Figure()
+                
+                fig_inst.add_trace(go.Bar(
+                    x=df_inst['Institution'],
+                    y=df_inst['Average Summary Score'],
+                    name='Average Summary Score',
+                    marker_color='blue'
+                ))
+                
+                fig_inst.add_trace(go.Bar(
+                    x=df_inst['Institution'],
+                    y=df_inst['Average Tag Score'],
+                    name='Average Tag Score',
+                    marker_color='green'
+                ))
+                
+                fig_inst.update_layout(
+                    barmode='group',
+                    title='Average Scores by Institution',
+                    xaxis_title='Institution',
+                    yaxis_title='Average Score'
+                )
+                
+                st.plotly_chart(fig_inst, use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Error rendering institution overview: {e}")
+            self.logger.error(f"Error rendering institution overview: {e}")
+    
+    def _render_evaluator_performance(self, evaluators: List[str]) -> None:
+        """
+        Render evaluator performance analysis.
+        
+        Args:
+            evaluators (List[str]): List of evaluator usernames
+        """
+        st.markdown("### Evaluator Performance")
+        
+        try:
+            # Create dataframe for evaluator stats
+            evaluator_data = []
+            
+            for evaluator in evaluators:
+                # Get evaluator stats
+                stats = self.db_service.get_evaluator_stats(evaluator, self.institution)
+                
+                # Only include evaluators from the selected institution
+                if stats['total_evaluations'] > 0:
+                    evaluator_data.append({
+                        'Evaluator': evaluator,
+                        'Total Evaluations': stats['total_evaluations'],
+                        'Average Summary Score': stats['average_summary_score'],
+                        'Average Tag Score': stats['average_tag_score']
+                    })
+            
+            if not evaluator_data:
+                st.info(f"No evaluator data available for {self.institution}.")
+                return
+                
+            # Create dataframe
+            df = pd.DataFrame(evaluator_data)
+            
+            # Display evaluator data using custom table to avoid Arrow conversion issues
+            st.markdown("#### Evaluator Performance Data")
+            
+            # Display column headers
+            cols = st.columns(len(df.columns))
+            for i, col_name in enumerate(df.columns):
+                cols[i].markdown(f"**{col_name}**")
+            
+            # Display data rows
+            for _, row in df.iterrows():
+                row_cols = st.columns(len(df.columns))
+                for i, col_name in enumerate(df.columns):
+                    # Convert value to string and display
+                    val = str(row[col_name]) if not pd.isna(row[col_name]) else ""
+                    row_cols[i].markdown(val)
+                
+                # Add separator
+                st.markdown("---")
+            
+            # Create evaluator comparison charts
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Evaluations per evaluator
+                fig_evals = px.bar(
+                    df, 
+                    x='Evaluator', 
+                    y='Total Evaluations',
+                    title='Evaluations per Evaluator'
+                )
+                st.plotly_chart(fig_evals, use_container_width=True)
+            
+            with col2:
+                # Average scores per evaluator
+                fig_scores = go.Figure()
+                
+                fig_scores.add_trace(go.Bar(
+                    x=df['Evaluator'],
+                    y=df['Average Summary Score'],
+                    name='Average Summary Score',
+                    marker_color='blue'
+                ))
+                
+                fig_scores.add_trace(go.Bar(
+                    x=df['Evaluator'],
+                    y=df['Average Tag Score'],
+                    name='Average Tag Score',
+                    marker_color='green'
+                ))
+                
+                fig_scores.update_layout(
+                    barmode='group',
+                    title='Average Scores per Evaluator',
+                    xaxis_title='Evaluator',
+                    yaxis_title='Average Score'
+                )
+                
+                st.plotly_chart(fig_scores, use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Error rendering evaluator performance: {e}")
+            self.logger.error(f"Error rendering evaluator performance: {e}")
+    
+    def _render_entry_analysis(self, entries: List[Entry]) -> None:
+        """
+        Render entry analysis.
+        
+        Args:
+            entries (List[Entry]): List of entries
+        """
+        st.markdown("### Entry Analysis")
+        
+        try:
+            # Entry selection
+            selected_entries = [e for e in entries if e.selected == 'Selected']
+            
+            if not selected_entries:
+                st.info(f"No selected entries found for {self.institution}.")
+                return
+            
+            # Select entry for analysis
+            entry_numbers = [e.event_number for e in selected_entries]
+            selected_entry_number = st.selectbox(
+                "Select Entry for Analysis",
+                entry_numbers
+            )
+            
+            # Get evaluations for the selected entry
+            selected_entry = next((e for e in entries if e.event_number == selected_entry_number), None)
+            
+            if not selected_entry:
+                st.error(f"Entry {selected_entry_number} not found.")
+                return
+            
+            # Display entry details
+            st.markdown("#### Entry Details")
+            
+            # Create entry dataframe
+            entry_data = {}
+            for key, value in selected_entry.data.items():
+                if key not in ['Selected'] and value is not None:
+                    entry_data[key] = [value]
+            
+            # Display entry details directly without using a dataframe 
+            # to avoid Arrow conversion issues
+            st.markdown("##### Entry Data")
+            
+            # For each field, display on a new line
+            for key, value in entry_data.items():
+                val = value[0]  # First (and only) row value
+                val_str = str(val) if val is not None and not pd.isna(val) else ""
+                st.markdown(f"**{key}**: {val_str}")
+            
+            # Get evaluations for this entry
+            st.markdown("#### Evaluations")
+            
+            evaluations_data = []
+            for evaluator in self.db_service.get_all_evaluators():
+                eval_obj = self.db_service.get_evaluation(
+                    institution=self.institution,
+                    evaluator=evaluator,
+                    entry_number=selected_entry_number
+                )
+                
+                if eval_obj:
+                    evaluations_data.append({
+                        'Evaluator': evaluator,
+                        'Summary Score': eval_obj.summary_score,
+                        'Tag Score': eval_obj.tag_score,
+                        'Feedback': eval_obj.feedback or ''
+                    })
+            
+            if not evaluations_data:
+                st.info(f"No evaluations found for entry {selected_entry_number}.")
+                return
+            
+            # Create evaluations dataframe
+            evals_df = pd.DataFrame(evaluations_data)
+            
+            # Display evaluations using custom table to avoid Arrow conversion issues
+            st.markdown("##### Evaluation Data")
+            
+            # Display column headers
+            cols = st.columns(len(evals_df.columns))
+            for i, col_name in enumerate(evals_df.columns):
+                cols[i].markdown(f"**{col_name}**")
+            
+            # Display data rows
+            for _, row in evals_df.iterrows():
+                row_cols = st.columns(len(evals_df.columns))
+                for i, col_name in enumerate(evals_df.columns):
+                    # Convert value to string and display
+                    val = str(row[col_name]) if not pd.isna(row[col_name]) else ""
+                    row_cols[i].markdown(val)
+                
+                # Add separator
+                st.markdown("---")
+            
+            # Display evaluation scores chart
+            fig_scores = go.Figure()
+            
+            fig_scores.add_trace(go.Bar(
+                x=evals_df['Evaluator'],
+                y=evals_df['Summary Score'],
+                name='Summary Score',
+                marker_color='blue'
+            ))
+            
+            fig_scores.add_trace(go.Bar(
+                x=evals_df['Evaluator'],
+                y=evals_df['Tag Score'],
+                name='Tag Score',
+                marker_color='green'
+            ))
+            
+            fig_scores.update_layout(
+                barmode='group',
+                title=f'Evaluation Scores for Entry {selected_entry_number}',
+                xaxis_title='Evaluator',
+                yaxis_title='Score'
+            )
+            
+            st.plotly_chart(fig_scores, use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Error rendering entry analysis: {e}")
+            self.logger.error(f"Error rendering entry analysis: {e}")
+    
+    def _render_statistical_analysis(self, entries: List[Entry], evaluators: List[str]) -> None:
+        """
+        Render statistical analysis.
+        
+        Args:
+            entries (List[Entry]): List of entries
+            evaluators (List[str]): List of evaluator usernames
+        """
+        st.markdown("### Statistical Analysis")
+        
+        try:
+            # Get evaluations data
+            evaluations_data = []
+            
+            for entry in entries:
+                if entry.selected == 'Selected':
+                    for evaluator in evaluators:
+                        eval_obj = self.db_service.get_evaluation(
+                            institution=self.institution,
+                            evaluator=evaluator,
+                            entry_number=entry.event_number
+                        )
+                        
+                        if eval_obj:
+                            evaluations_data.append({
+                                'Entry Number': entry.event_number,
+                                'Evaluator': evaluator,
+                                'Summary Score': eval_obj.summary_score,
+                                'Tag Score': eval_obj.tag_score
+                            })
+            
+            if not evaluations_data:
+                st.info(f"No evaluation data available for statistical analysis.")
+                return
+            
+            # Create dataframe
+            df = pd.DataFrame(evaluations_data)
+            
+            # Display score distribution
+            st.markdown("#### Score Distribution")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Summary score histogram
+                fig_summary = px.histogram(
+                    df,
+                    x='Summary Score',
+                    nbins=10,
+                    title='Summary Score Distribution'
+                )
+                st.plotly_chart(fig_summary, use_container_width=True)
+            
+            with col2:
+                # Tag score histogram
+                fig_tag = px.histogram(
+                    df,
+                    x='Tag Score',
+                    nbins=10,
+                    title='Tag Score Distribution'
+                )
+                st.plotly_chart(fig_tag, use_container_width=True)
+            
+            # Score statistics
+            st.markdown("#### Score Statistics")
+            
+            summary_stats = {
+                'Mean': np.mean(df['Summary Score']),
+                'Median': np.median(df['Summary Score']),
+                'Standard Deviation': np.std(df['Summary Score']),
+                'Min': np.min(df['Summary Score']),
+                'Max': np.max(df['Summary Score'])
+            }
+            
+            tag_stats = {
+                'Mean': np.mean(df['Tag Score']),
+                'Median': np.median(df['Tag Score']),
+                'Standard Deviation': np.std(df['Tag Score']),
+                'Min': np.min(df['Tag Score']),
+                'Max': np.max(df['Tag Score'])
+            }
+            
+            stats_df = pd.DataFrame({
+                'Summary Score': summary_stats,
+                'Tag Score': tag_stats
+            })
+            
+            # Display statistics using custom table to avoid Arrow conversion issues
+            
+            # Create a formatted table with markdown
+            st.markdown("##### Statistical Data")
+            
+            # Create header row
+            header = "| Statistic | Summary Score | Tag Score |"
+            separator = "|----------|--------------|----------|"
+            st.markdown(header)
+            st.markdown(separator)
+            
+            # Create data rows
+            for stat_name in summary_stats.keys():
+                summary_val = f"{summary_stats[stat_name]:.3f}"
+                tag_val = f"{tag_stats[stat_name]:.3f}"
+                st.markdown(f"| **{stat_name}** | {summary_val} | {tag_val} |")
+            
+            # Score correlation
+            st.markdown("#### Score Correlation")
+            
+            fig_corr = px.scatter(
+                df,
+                x='Summary Score',
+                y='Tag Score',
+                title='Correlation between Summary and Tag Scores',
+                trendline='ols'
+            )
+            
+            st.plotly_chart(fig_corr, use_container_width=True)
+            
+            # Calculate correlation coefficient
+            correlation = np.corrcoef(df['Summary Score'], df['Tag Score'])[0, 1]
+            st.markdown(f"**Correlation Coefficient**: {correlation:.3f}")
+            
+        except Exception as e:
+            st.error(f"Error rendering statistical analysis: {e}")
+            self.logger.error(f"Error rendering statistical analysis: {e}")
