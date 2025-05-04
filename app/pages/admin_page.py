@@ -199,6 +199,9 @@ class AdminPage(SecurePage):
         # Create dataframe
         df = pd.DataFrame(entries_data)
         
+        # Ensure Event Number is string type
+        df['Event Number'] = df['Event Number'].astype(str)
+        
         # Add selection column with checkboxes
         selection_col = []
         for i, row in df.iterrows():
@@ -446,6 +449,9 @@ class AdminPage(SecurePage):
         
         # Create dataframe
         df = pd.DataFrame(entries_data)
+        
+        # Ensure Event Number is string type
+        df['Event Number'] = df['Event Number'].astype(str)
         
         # Display dataframe
         st.dataframe(
