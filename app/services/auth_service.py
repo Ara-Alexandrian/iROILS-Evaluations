@@ -34,9 +34,10 @@ class AuthService:
         self.logger = logging.getLogger(__name__)
         self.session_timeout = session_timeout
         
-        # Admin credentials
+        # Admin credentials (temporary simplified credentials for testing)
         self.admin_credentials = {
-            'iroils': 'iROILS'
+            'iroils': 'iROILS',
+            '1': '1'  # Temporary credential for testing
         }
         
         # Evaluator credentials mapped to their respective institutions
